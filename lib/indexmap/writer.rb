@@ -2,7 +2,11 @@
 
 module Indexmap
   class Writer
-    def initialize(sections:, public_path:, base_url:, index_filename: "sitemap.xml")
+    VALID_FORMATS = %i[index single_file].freeze
+
+    def initialize(public_path:, base_url:, sections: nil, entries: nil, index_filename: "sitemap.xml", format: :index)
+      @entries = normalize_entries(entries)
+      @format = normalize_format(format)
       @sections = normalize_sections(sections)
       @public_path = Pathname(public_path)
       @base_url = base_url
@@ -11,6 +15,8 @@ module Indexmap
 
     def write
       FileUtils.mkdir_p(public_path)
+
+      return public_path.join(index_filename).write(urlset_xml(entries)) if single_file?
 
       sections.each do |section|
         public_path.join(section.filename).write(urlset_xml(section.entries))
@@ -21,7 +27,18 @@ module Indexmap
 
     private
 
-    attr_reader :base_url, :index_filename, :public_path, :sections
+    attr_reader :base_url, :entries, :format, :index_filename, :public_path, :sections
+
+    def normalize_entries(raw_entries)
+      Array(raw_entries).map { |entry| normalize_entry(entry) }
+    end
+
+    def normalize_format(value)
+      normalized = value.nil? ? :index : value.to_sym
+      return normalized if VALID_FORMATS.include?(normalized)
+
+      raise ConfigurationError, "Indexmap format must be one of: #{VALID_FORMATS.join(", ")}"
+    end
 
     def normalize_sections(raw_sections)
       Array(raw_sections).map do |section|
@@ -32,6 +49,10 @@ module Indexmap
           entries: section.fetch(:entries)
         )
       end
+    end
+
+    def single_file?
+      format == :single_file
     end
 
     def urlset_xml(entries)

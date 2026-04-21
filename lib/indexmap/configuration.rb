@@ -2,14 +2,26 @@
 
 module Indexmap
   class Configuration
-    attr_writer :base_url, :index_filename, :public_path, :sections
+    VALID_FORMATS = %i[index single_file].freeze
+
+    attr_writer :base_url, :entries, :format, :index_filename, :public_path, :sections
 
     def initialize
+      @format = :index
       @index_filename = "sitemap.xml"
     end
 
     def base_url
       resolve(@base_url)
+    end
+
+    def entries
+      Array(resolve(@entries))
+    end
+
+    def format
+      value = resolve(@format)
+      value.nil? ? :index : value.to_sym
     end
 
     def index_filename
@@ -29,9 +41,20 @@ module Indexmap
 
     def writer
       raise ConfigurationError, "Indexmap base_url is not configured" if base_url.to_s.strip.empty?
-      raise ConfigurationError, "Indexmap sections are not configured" if sections.empty?
+
+      unless VALID_FORMATS.include?(format)
+        raise ConfigurationError, "Indexmap format must be one of: #{VALID_FORMATS.join(", ")}"
+      end
+
+      if format == :single_file
+        raise ConfigurationError, "Indexmap entries are not configured" if entries.empty?
+      elsif sections.empty?
+        raise ConfigurationError, "Indexmap sections are not configured" if sections.empty?
+      end
 
       Writer.new(
+        entries: entries,
+        format: format,
         sections: sections,
         public_path: public_path,
         base_url: base_url,

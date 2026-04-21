@@ -12,6 +12,8 @@ It is designed for Rails apps that want:
 - first-party rake tasks instead of a large DSL
 - easy extraction of sitemap logic into app-owned manifests
 
+The default output mode is a sitemap index plus one or more child sitemap files. For simpler sites, `indexmap` also supports an explicit single-file mode that writes a single `urlset` directly to `sitemap.xml`.
+
 ## Installation
 
 Add this line to your application's Gemfile:
@@ -81,6 +83,26 @@ This enables:
 bin/rails sitemap:create
 bin/rails sitemap:format
 ```
+
+### Single-file mode
+
+For sites that only want one `public/sitemap.xml` file:
+
+```ruby
+Indexmap.configure do |config|
+  config.base_url = -> { "https://example.com" }
+  config.public_path = -> { Rails.public_path }
+  config.format = :single_file
+  config.entries = -> do
+    [
+      Indexmap::Entry.new(loc: "https://example.com/"),
+      Indexmap::Entry.new(loc: "https://example.com/about", lastmod: Date.new(2026, 4, 21))
+    ]
+  end
+end
+```
+
+In `:single_file` mode, `indexmap` writes a `urlset` directly to `sitemap.xml`. In the default `:index` mode, it writes a sitemap index plus child sitemap files from `sections`.
 
 ## Development
 

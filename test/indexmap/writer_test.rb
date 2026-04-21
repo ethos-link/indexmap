@@ -53,4 +53,28 @@ class IndexmapWriterTest < Minitest::Test
       assert_includes child_xml, "<lastmod>2026-04-20T09:15:00Z</lastmod>"
     end
   end
+
+  def test_writes_single_file_urlset
+    Dir.mktmpdir do |directory|
+      Indexmap::Writer.new(
+        format: :single_file,
+        entries: [
+          Indexmap::Entry.new(loc: "https://example.com/", lastmod: Date.new(2026, 4, 21)),
+          {loc: "https://example.com/about", lastmod: "2026-04-22T09:15:00Z"}
+        ],
+        public_path: directory,
+        base_url: "https://example.com"
+      ).write
+
+      sitemap_xml = File.read(File.join(directory, "sitemap.xml"))
+
+      assert_includes sitemap_xml, "<urlset"
+      assert_includes sitemap_xml, "<loc>https://example.com/</loc>"
+      assert_includes sitemap_xml, "<loc>https://example.com/about</loc>"
+      assert_includes sitemap_xml, "<lastmod>2026-04-21</lastmod>"
+      assert_includes sitemap_xml, "<lastmod>2026-04-22T09:15:00Z</lastmod>"
+      refute_includes sitemap_xml, "<sitemapindex"
+      refute File.exist?(File.join(directory, "sitemap-pages.xml"))
+    end
+  end
 end
