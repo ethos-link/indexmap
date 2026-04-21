@@ -1,0 +1,6 @@
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: bundle exec commitlint --message {1}
+    - name: standard
+      run: bundle exec rake standard
