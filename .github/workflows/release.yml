@@ -57,11 +57,17 @@ jobs:
             exit 1
           fi
 
+      - name: Build gem
+        run: bundle exec rake build
+
+      - name: Configure RubyGems credentials
+        uses: rubygems/configure-rubygems-credentials@bc6dd217f8a4f919d6835fcfefd470ef821f5c44
+
+      - name: Publish to RubyGems
+        run: gem push "pkg/indexmap-${{ steps.version.outputs.value }}.gem"
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           body_path: release_notes.md
           generate_release_notes: false
-
-      - name: Publish to RubyGems
-        uses: rubygems/release-gem@v1
