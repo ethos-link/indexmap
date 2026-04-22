@@ -2,19 +2,28 @@ namespace :sitemap do
   desc "Create sitemap files"
   task create: :environment do
     runner = Indexmap::TaskRunner.new
-    runner.create
+    create_result = runner.create
     runner.format
-    runner.validate
+    validated_files = runner.validate
+
+    puts "Created, formatted, and validated #{file_count(validated_files)} in #{public_directory(runner)}."
+    puts "IndexNow key file: #{create_result[:index_now_key_path]}" if create_result[:index_now_key_path]
   end
 
   desc "Format sitemap files for better readability"
   task format: :environment do
-    Indexmap::TaskRunner.new.format
+    runner = Indexmap::TaskRunner.new
+    formatted_files = runner.format
+
+    puts "Formatted #{file_count(formatted_files)} in #{public_directory(runner)}."
   end
 
   desc "Validate sitemap shape and URL hygiene"
   task validate: :environment do
-    Indexmap::TaskRunner.new.validate
+    runner = Indexmap::TaskRunner.new
+    validated_files = runner.validate
+
+    puts "Validated #{file_count(validated_files)} for sitemap shape and URL hygiene."
   end
 
   desc "Ping all configured search engines"
@@ -39,7 +48,20 @@ namespace :sitemap do
     desc "Write the IndexNow key file into public/"
     task write_key: :environment do
       path = Indexmap::TaskRunner.new.write_index_now_key
-      puts "Wrote #{path}" if path
+      if path
+        puts "Wrote IndexNow key file to #{path}."
+      else
+        puts "IndexNow key is not configured; skipped key file write."
+      end
     end
+  end
+
+  def file_count(files)
+    count = Array(files).size
+    "#{count} sitemap #{(count == 1) ? "file" : "files"}"
+  end
+
+  def public_directory(runner)
+    runner.public_path
   end
 end

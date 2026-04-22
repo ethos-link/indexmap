@@ -11,7 +11,7 @@ module Indexmap
     def create
       remove_existing_sitemap_files
       configuration.writer.write
-      write_index_now_key
+      {files: sitemap_files, index_now_key_path: write_index_now_key}
     end
 
     def format
@@ -27,28 +27,35 @@ module Indexmap
 
         File.write(file_path, document.to_xml(indent: 2, save_with: save_options))
       end
+
+      sitemap_files
     end
 
     def validate
       Validator.new(configuration: configuration).validate!
+      sitemap_files
     end
 
     def write_index_now_key
       Pinger::IndexNow.new(configuration: configuration).write_key_file
     end
 
+    def public_path
+      configuration.public_path
+    end
+
     private
 
     attr_reader :configuration
-
-    def sitemap_files
-      Dir.glob(configuration.public_path.join("sitemap*.xml"))
-    end
 
     def remove_existing_sitemap_files
       Dir.glob(configuration.public_path.join("sitemap*.xml*")).each do |file_path|
         File.delete(file_path)
       end
+    end
+
+    def sitemap_files
+      Dir.glob(configuration.public_path.join("sitemap*.xml")).sort
     end
   end
 end
