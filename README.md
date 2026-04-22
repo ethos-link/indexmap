@@ -104,6 +104,47 @@ end
 
 In `:single_file` mode, `indexmap` writes a `urlset` directly to `sitemap.xml`. In the default `:index` mode, it writes a sitemap index plus child sitemap files from `sections`.
 
+## Validation and Parsing
+
+`indexmap` also includes small utilities for working with generated sitemap files:
+
+```ruby
+parser = Indexmap::Parser.new(path: Rails.public_path.join("sitemap.xml"))
+parser.paths
+# => ["/", "/about", "/articles/example"]
+
+Indexmap::Validator.new.validate!
+```
+
+The built-in validator checks for:
+
+- missing sitemap files
+- duplicate sitemap URLs
+- parameterized URLs in sitemap entries
+
+## Search Engine Ping
+
+The gem can ping Google Search Console and IndexNow once your app config provides the required credentials.
+
+```ruby
+Indexmap.configure do |config|
+  config.google.credentials = -> { ENV["GOOGLE_SITEMAP"] }
+  config.index_now.key = -> { ENV["INDEXNOW_KEY"] }
+end
+```
+
+When `config.index_now.key` is set, `sitemap:create` also writes the matching `public/<key>.txt` verification file automatically.
+
+Available rake tasks:
+
+```bash
+bin/rails sitemap:validate
+bin/rails sitemap:google:ping
+bin/rails sitemap:index_now:ping
+bin/rails sitemap:ping
+bin/rails sitemap:index_now:write_key
+```
+
 ## Development
 
 Run tests:

@@ -24,8 +24,16 @@ module Indexmap
       value.nil? ? :index : value.to_sym
     end
 
+    def google
+      @google ||= GoogleConfiguration.new
+    end
+
     def index_filename
       resolve(@index_filename)
+    end
+
+    def index_now
+      @index_now ||= IndexNowConfiguration.new
     end
 
     def public_path
