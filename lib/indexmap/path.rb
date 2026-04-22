@@ -26,7 +26,8 @@ module Indexmap
     end
 
     def default_index_filename
-      Indexmap.configuration.index_filename.presence || INDEX_FILENAME
+      configured = Indexmap.configuration.index_filename
+      configured.to_s.strip.empty? ? INDEX_FILENAME : configured
     rescue
       INDEX_FILENAME
     end

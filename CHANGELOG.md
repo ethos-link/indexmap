@@ -17,13 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extend configuration with `google` and `index_now` settings so Rails apps can declare search engine credentials and IndexNow behavior in the gem config.
 - Move more sitemap ownership into the gem so host apps can keep only their app-specific sitemap manifest and validation rules.
 
-## [0.2.1] - 2026-04-22
+## [0.2.1] - 2026-04-21
 
 ### Fixed
 - Update the release workflow to build the gem and push the built artifact directly.
 - Avoid the GitHub Actions failure caused by `rubygems/release-gem` invoking the guarded `rake release` task.
 
-## [0.2.0] - 2026-04-22
+## [0.2.0] - 2026-04-21
 
 ### Added
 - Add explicit single-file sitemap mode for smaller Rails sites and route-based sitemap setups.
@@ -31,10 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Keep multi-file sitemap indexes as the default while allowing `sitemap.xml` to be emitted as a direct `urlset` when configured.
 
-## [0.1.0] - 2026-04-22
+## [0.1.0] - 2026-04-21
 
 ### Added
 - Bootstrap the public `indexmap` gem.
 - Add the initial Rails integration with entries, sections, configuration, writer, railtie, and sitemap rake tasks.
 - Document the installation and basic sitemap generation workflow.
-

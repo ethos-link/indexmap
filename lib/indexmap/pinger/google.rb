@@ -50,7 +50,8 @@ module Indexmap
       end
 
       def property_identifier
-        google_configuration.property.presence || "sc-domain:#{root_domain}"
+        property = google_configuration.property
+        property.to_s.strip.empty? ? "sc-domain:#{root_domain}" : property
       end
 
       def webmasters_service

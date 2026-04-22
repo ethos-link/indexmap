@@ -3,6 +3,18 @@
 require "test_helper"
 
 class IndexmapValidatorTest < Minitest::Test
+  def test_validate_raises_for_missing_sitemap
+    Dir.mktmpdir do |directory|
+      path = Pathname(directory).join("missing.xml")
+
+      error = assert_raises(Indexmap::ValidationError) do
+        Indexmap::Validator.new(path: path).validate!
+      end
+
+      assert_equal "Missing sitemap file: #{path}", error.message
+    end
+  end
+
   def test_validate_raises_for_duplicate_urls
     Dir.mktmpdir do |directory|
       path = Pathname(directory).join("sitemap.xml")

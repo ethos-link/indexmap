@@ -7,4 +7,5 @@ gemspec
 group :development do
   gem "commitlint", require: false
   gem "lefthook", require: false
+  gem "simplecov", require: false
 end
