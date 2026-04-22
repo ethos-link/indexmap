@@ -17,10 +17,13 @@ module Indexmap
       def ping
         if google_configuration.credentials.to_s.strip.empty?
           logger.debug("Google sitemap credentials not configured.")
-          return
+          return {status: :skipped, reason: :missing_credentials}
         end
 
-        super
+        results = sitemap_files.map { |sitemap_file| ping_sitemap(sitemap_file) }
+        return {status: :skipped, reason: :no_sitemaps} if results.empty?
+
+        summarize_results(results)
       end
 
       private
@@ -36,13 +39,26 @@ module Indexmap
 
         unless authorized?
           logger.error("Google Search Console does not have access to the site: #{root_domain}")
-          return
+          return {
+            status: :failed,
+            reason: :unauthorized,
+            property: property_identifier,
+            root_domain: root_domain
+          }
         end
 
         webmasters_service.submit_sitemap(property_identifier, sitemap_url)
         logger.debug { "Successfully pinged Google with sitemap: #{sitemap_url}" }
+        {status: :submitted, sitemap_url: sitemap_url}
       rescue ::Google::Apis::ClientError => e
         logger.debug { "Failed to ping Google for #{sitemap_url}. Status: #{e.status_code}, Body: #{e.body}" }
+        {
+          status: :failed,
+          reason: :client_error,
+          sitemap_url: sitemap_url,
+          status_code: e.status_code,
+          body: e.body
+        }
       end
 
       def authorized?
@@ -72,6 +88,21 @@ module Indexmap
           json_key_io: StringIO.new(json_key),
           scope: scope
         )
+      end
+
+      def summarize_results(results)
+        submitted = results.select { |result| result[:status] == :submitted }
+        failures = results.select { |result| result[:status] == :failed }
+
+        return {status: :submitted, sitemap_count: submitted.count, submitted: submitted} if failures.empty?
+        return {status: :failed, sitemap_count: 0, failures: failures} if submitted.empty?
+
+        {
+          status: :partial,
+          sitemap_count: submitted.count,
+          submitted: submitted,
+          failures: failures
+        }
       end
     end
   end

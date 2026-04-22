@@ -17,25 +17,27 @@ module Indexmap
         api_key = read_api_key
         unless api_key
           logger.debug("IndexNow API key is not configured.")
-          return
+          return {status: :skipped, reason: :missing_key}
         end
 
         entries = entries_to_ping
         if entries.empty?
           logger.debug("IndexNow: no URLs matched the current filter.")
-          return
+          return {status: :skipped, reason: :no_urls}
         end
 
-        entries.each_slice(max_urls_per_request) do |batch|
+        results = entries.each_slice(max_urls_per_request).map do |batch|
           urls = batch.map(&:loc)
 
           if dry_run?
             logger.debug { "IndexNow dry-run: would ping #{urls.count} URLs." }
-            next
+            next({status: :dry_run, url_count: urls.count})
           end
 
           submit_batch(api_key: api_key, urls: urls)
         end
+
+        summarize_results(results)
       end
 
       def write_key_file(key: index_now_configuration.key, path: nil)
@@ -148,10 +150,10 @@ module Indexmap
 
         if response.success?
           logger.debug { "Successfully pinged IndexNow with #{urls.count} URLs." }
-          true
+          {status: :submitted, url_count: urls.count}
         else
           logger.debug { "Failed to ping IndexNow. Status: #{response.status}, Body: #{response.body}" }
-          false
+          {status: :failed, url_count: urls.count, status_code: response.status, body: response.body}
         end
       end
 
@@ -190,6 +192,44 @@ module Indexmap
 
       def generated_key
         SecureRandom.uuid
+      end
+
+      def summarize_results(results)
+        dry_runs = results.select { |result| result[:status] == :dry_run }
+        submitted = results.select { |result| result[:status] == :submitted }
+        failures = results.select { |result| result[:status] == :failed }
+
+        if dry_runs.any?
+          return {
+            status: :dry_run,
+            url_count: dry_runs.sum { |result| result[:url_count] },
+            batch_count: dry_runs.count
+          }
+        end
+
+        if failures.empty?
+          return {
+            status: :submitted,
+            url_count: submitted.sum { |result| result[:url_count] },
+            batch_count: submitted.count
+          }
+        end
+
+        if submitted.empty?
+          return {
+            status: :failed,
+            url_count: 0,
+            batch_count: 0,
+            failures: failures
+          }
+        end
+
+        {
+          status: :partial,
+          url_count: submitted.sum { |result| result[:url_count] },
+          batch_count: submitted.count,
+          failures: failures
+        }
       end
     end
   end

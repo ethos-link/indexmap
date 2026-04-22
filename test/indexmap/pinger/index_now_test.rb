@@ -48,12 +48,15 @@ class IndexmapPingerIndexNowTest < Minitest::Test
       indexnow_url = "https://api.indexnow.org/indexnow"
       stub_request(:post, indexnow_url).to_return(status: 200, body: "", headers: {})
 
-      Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+      result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
 
       assert_requested(:post, indexnow_url, times: 1) do |request|
         payload = JSON.parse(request.body)
         assert_equal "test-key-123", payload.fetch("key")
       end
+      assert_equal :submitted, result[:status]
+      assert_equal 2, result[:url_count]
+      assert_equal 1, result[:batch_count]
     end
   end
 
@@ -74,7 +77,7 @@ class IndexmapPingerIndexNowTest < Minitest::Test
       indexnow_url = "https://api.indexnow.org/indexnow"
       stub_request(:post, indexnow_url).to_return(status: 200, body: "", headers: {})
 
-      Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+      result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
 
       assert_requested(:post, indexnow_url, times: 1) do |request|
         payload = JSON.parse(request.body)
@@ -83,6 +86,9 @@ class IndexmapPingerIndexNowTest < Minitest::Test
           "https://www.example.com/insights/us/restaurants/overview"
         ].sort, payload.fetch("urlList").sort
       end
+      assert_equal :submitted, result[:status]
+      assert_equal 2, result[:url_count]
+      assert_equal 1, result[:batch_count]
     end
   end
 
@@ -104,13 +110,85 @@ class IndexmapPingerIndexNowTest < Minitest::Test
       stub_request(:post, indexnow_url).to_return(status: 200, body: "", headers: {})
 
       with_env("SINCE" => "2026-04-15T00:00:00Z") do
-        Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+        result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+
+        assert_equal :submitted, result[:status]
+        assert_equal 1, result[:url_count]
+        assert_equal 1, result[:batch_count]
       end
 
       assert_requested(:post, indexnow_url, times: 1) do |request|
         payload = JSON.parse(request.body)
         assert_equal ["https://www.example.com/pages/features"], payload.fetch("urlList")
       end
+    end
+  end
+
+  def test_skips_indexnow_ping_when_key_is_missing
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      write_sitemap_files(
+        public_path,
+        marketing_lastmod: "2026-04-18T00:00:00Z",
+        insights_lastmod: "2026-04-10T00:00:00Z"
+      )
+
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = public_path
+
+      result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+
+      assert_equal({status: :skipped, reason: :missing_key}, result)
+    end
+  end
+
+  def test_reports_indexnow_dry_run
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      write_sitemap_files(
+        public_path,
+        marketing_lastmod: "2026-04-18T00:00:00Z",
+        insights_lastmod: "2026-04-10T00:00:00Z"
+      )
+
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = public_path
+      configuration.index_now.key = "test-key"
+
+      with_env("INDEXNOW_DRY_RUN" => "1") do
+        result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+
+        assert_equal :dry_run, result[:status]
+        assert_equal 2, result[:url_count]
+        assert_equal 1, result[:batch_count]
+      end
+    end
+  end
+
+  def test_reports_failed_indexnow_submission
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      write_sitemap_files(
+        public_path,
+        marketing_lastmod: "2026-04-18T00:00:00Z",
+        insights_lastmod: "2026-04-10T00:00:00Z"
+      )
+
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = public_path
+      configuration.index_now.key = "test-key"
+
+      indexnow_url = "https://api.indexnow.org/indexnow"
+      stub_request(:post, indexnow_url).to_return(status: 500, body: "boom", headers: {})
+
+      result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+
+      assert_equal :failed, result[:status]
+      assert_equal 1, result[:failures].count
+      assert_equal 500, result[:failures].first[:status_code]
     end
   end
 
