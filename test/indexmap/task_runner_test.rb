@@ -20,11 +20,13 @@ class IndexmapTaskRunnerTest < Minitest::Test
       ]
       configuration.index_now.key = "test-key"
 
-      Indexmap::TaskRunner.new(configuration: configuration).create
+      result = Indexmap::TaskRunner.new(configuration: configuration).create
 
       assert_equal false, public_path.join("sitemap-pages.xml.gz").exist?
       assert_includes public_path.join("sitemap.xml").read, "<sitemapindex"
       assert_equal "test-key\n", public_path.join("test-key.txt").read
+      assert_equal [public_path.join("sitemap-pages.xml").to_s, public_path.join("sitemap.xml").to_s], result[:files]
+      assert_equal public_path.join("test-key.txt"), result[:index_now_key_path]
     end
   end
 
