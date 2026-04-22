@@ -2,6 +2,7 @@
 
 require "faraday"
 require "json"
+require "securerandom"
 require "time"
 
 module Indexmap
@@ -37,14 +38,24 @@ module Indexmap
         end
       end
 
-      def write_key_file
-        key = index_now_configuration.key.to_s.strip
+      def write_key_file(key: index_now_configuration.key, path: nil)
+        key = key.to_s.strip
         return if key.empty?
 
-        path = index_now_configuration.key_path(public_path: configuration.public_path)
+        path ||= index_now_configuration.key_path(public_path: configuration.public_path, key: key)
         FileUtils.mkdir_p(path.dirname)
         File.write(path, "#{key}\n")
         path
+      end
+
+      def ensure_key_file
+        configured_key = index_now_configuration.key.to_s.strip
+        return write_key_file(key: configured_key) unless configured_key.empty?
+
+        return existing_key_file if existing_key_file
+
+        key = generated_key
+        write_key_file(key: key, path: configuration.public_path.join("#{key}.txt"))
       end
 
       private
@@ -158,15 +169,27 @@ module Indexmap
         configured_key = index_now_configuration.key.to_s.strip
         return configured_key unless configured_key.empty?
 
-        key_file = configuration.public_path.glob("*.txt").find do |file|
-          filename = file.basename(".txt").to_s
-          next unless filename.match?(/\A[a-zA-Z0-9-]{8,128}\z/)
+        existing_key_file&.read&.strip
+      end
 
-          File.read(file).strip == filename
-        end
-        return nil unless key_file
+      def existing_key_file
+        configured_path = index_now_configuration.key_path(public_path: configuration.public_path)
+        return configured_path if valid_key_file?(configured_path)
 
-        File.read(key_file).strip
+        configuration.public_path.glob("*.txt").find { |file| valid_key_file?(file) }
+      end
+
+      def valid_key_file?(path)
+        return false unless path&.file?
+
+        filename = path.basename(".txt").to_s
+        return false unless filename.match?(/\A[a-zA-Z0-9-]{8,128}\z/)
+
+        path.read.strip == filename
+      end
+
+      def generated_key
+        SecureRandom.uuid
       end
     end
   end

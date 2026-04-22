@@ -135,6 +135,14 @@ end
 
 When `config.index_now.key` is set, `sitemap:create` also writes the matching `public/<key>.txt` verification file automatically.
 
+If you want IndexNow to generate a key for you instead, run:
+
+```bash
+bin/rails sitemap:index_now:write_key
+```
+
+That task reuses an existing valid key file when present; otherwise it generates a new key in `public/<key>.txt`, which `sitemap:index_now:ping` can use without adding `config.index_now.key`.
+
 Available rake tasks:
 
 ```bash

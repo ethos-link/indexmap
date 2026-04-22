@@ -45,11 +45,11 @@ namespace :sitemap do
       Indexmap::Pinger::IndexNow.new.ping
     end
 
-    desc "Write the IndexNow key file into public/"
+    desc "Ensure the IndexNow key file exists in public/"
     task write_key: :environment do
-      path = Indexmap::TaskRunner.new.write_index_now_key
+      path = Indexmap::TaskRunner.new.write_index_now_key(generate_if_missing: true)
       if path
-        puts "Wrote IndexNow key file to #{path}."
+        puts "IndexNow key file available at #{path}."
       else
         puts "IndexNow key is not configured; skipped key file write."
       end
