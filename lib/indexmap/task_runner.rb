@@ -11,6 +11,7 @@ module Indexmap
     def create
       remove_existing_sitemap_files
       configuration.writer.write
+      write_index_now_key
     end
 
     def format
@@ -26,6 +27,14 @@ module Indexmap
 
         File.write(file_path, document.to_xml(indent: 2, save_with: save_options))
       end
+    end
+
+    def validate
+      Validator.new(configuration: configuration).validate!
+    end
+
+    def write_index_now_key
+      Pinger::IndexNow.new(configuration: configuration).write_key_file
     end
 
     private

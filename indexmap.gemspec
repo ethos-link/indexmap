@@ -44,10 +44,14 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "activesupport", ">= 7.1"
+  spec.add_dependency "faraday", ">= 2.0"
+  spec.add_dependency "google-apis-searchconsole_v1", ">= 0.18"
+  spec.add_dependency "googleauth", ">= 1.12"
   spec.add_dependency "nokogiri", ">= 1.16"
   spec.add_dependency "railties", ">= 7.1"
 
   spec.add_development_dependency "minitest", "~> 5.0"
   spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "standard", "~> 1.0"
+  spec.add_development_dependency "webmock", "~> 3.0"
 end
