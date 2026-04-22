@@ -36,8 +36,11 @@ module Indexmap
       sitemap_files
     end
 
-    def write_index_now_key
-      Pinger::IndexNow.new(configuration: configuration).write_key_file
+    def write_index_now_key(generate_if_missing: false)
+      pinger = Pinger::IndexNow.new(configuration: configuration)
+      return pinger.ensure_key_file if generate_if_missing
+
+      pinger.write_key_file
     end
 
     def public_path

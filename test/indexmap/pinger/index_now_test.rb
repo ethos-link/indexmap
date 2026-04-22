@@ -17,6 +17,46 @@ class IndexmapPingerIndexNowTest < Minitest::Test
     end
   end
 
+  def test_ensure_key_file_generates_a_key_when_configuration_is_missing
+    Dir.mktmpdir do |dir|
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = Pathname(dir)
+
+      path = Indexmap::Pinger::IndexNow.new(configuration: configuration).ensure_key_file
+
+      assert_match(/\A[a-z0-9-]{8,128}\.txt\z/, path.basename.to_s)
+      assert_equal "#{path.basename(".txt")}\n", path.read
+    end
+  end
+
+  def test_pings_using_existing_key_file_when_key_is_not_configured
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      key_path = public_path.join("test-key-123.txt")
+      key_path.write("test-key-123\n")
+      write_sitemap_files(
+        public_path,
+        marketing_lastmod: "2026-04-18T00:00:00Z",
+        insights_lastmod: "2026-04-10T00:00:00Z"
+      )
+
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = public_path
+
+      indexnow_url = "https://api.indexnow.org/indexnow"
+      stub_request(:post, indexnow_url).to_return(status: 200, body: "", headers: {})
+
+      Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+
+      assert_requested(:post, indexnow_url, times: 1) do |request|
+        payload = JSON.parse(request.body)
+        assert_equal "test-key-123", payload.fetch("key")
+      end
+    end
+  end
+
   def test_pings_all_sitemap_urls_when_no_cutoff_is_provided
     Dir.mktmpdir do |dir|
       public_path = Pathname(dir)

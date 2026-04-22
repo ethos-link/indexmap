@@ -3,7 +3,7 @@
 [![Gem Version](https://badge.fury.io/rb/indexmap.svg)](https://badge.fury.io/rb/indexmap)
 [![Ruby](https://github.com/ethos-link/indexmap/actions/workflows/ruby.yml/badge.svg)](https://github.com/ethos-link/indexmap/actions/workflows/ruby.yml)
 
-`indexmap` is a small Ruby gem for generating XML sitemap indexes and child sitemaps from explicit section definitions.
+`indexmap` is a small Ruby gem for generating XML sitemaps from explicit Ruby data.
 
 It is designed for Rails apps that want:
 
@@ -12,7 +12,7 @@ It is designed for Rails apps that want:
 - first-party rake tasks instead of a large DSL
 - easy extraction of sitemap logic into app-owned manifests
 
-The default output mode is a sitemap index plus one or more child sitemap files. For simpler sites, `indexmap` also supports an explicit single-file mode that writes a single `urlset` directly to `sitemap.xml`.
+By default, `indexmap` writes a sitemap index plus one or more child sitemap files. For simpler sites, it also supports `:single_file` mode, which writes a single `urlset` directly to `sitemap.xml`.
 
 ## Installation
 
@@ -34,7 +34,7 @@ Or install it directly:
 gem install indexmap
 ```
 
-## Ruby usage
+## Ruby Usage
 
 ```ruby
 require "indexmap"
@@ -56,7 +56,7 @@ Indexmap::Writer.new(
 ).write
 ```
 
-## Rails configuration
+## Rails Usage
 
 In an initializer:
 
@@ -77,14 +77,24 @@ Indexmap.configure do |config|
 end
 ```
 
-This enables:
+Then run:
 
 ```bash
 bin/rails sitemap:create
 bin/rails sitemap:format
+bin/rails sitemap:validate
 ```
 
-### Single-file mode
+`sitemap:create` is the main task. It writes sitemap files, formats them, and validates the result.
+
+### Default Index Mode
+
+This is the default behavior. `indexmap` writes:
+
+- `public/sitemap.xml` as a sitemap index
+- one or more child sitemap files from `config.sections`
+
+### Single-File Mode
 
 For sites that only want one `public/sitemap.xml` file:
 
@@ -102,9 +112,9 @@ Indexmap.configure do |config|
 end
 ```
 
-In `:single_file` mode, `indexmap` writes a `urlset` directly to `sitemap.xml`. In the default `:index` mode, it writes a sitemap index plus child sitemap files from `sections`.
+In `:single_file` mode, `indexmap` writes a `urlset` directly to `sitemap.xml` and reads entries from `config.entries` instead of `config.sections`.
 
-## Validation and Parsing
+## Validation And Parsing
 
 `indexmap` also includes small utilities for working with generated sitemap files:
 
@@ -124,16 +134,7 @@ The built-in validator checks for:
 
 ## Search Engine Ping
 
-The gem can ping Google Search Console and IndexNow once your app config provides the required credentials.
-
-```ruby
-Indexmap.configure do |config|
-  config.google.credentials = -> { ENV["GOOGLE_SITEMAP"] }
-  config.index_now.key = -> { ENV["INDEXNOW_KEY"] }
-end
-```
-
-When `config.index_now.key` is set, `sitemap:create` also writes the matching `public/<key>.txt` verification file automatically.
+`indexmap` can ping Google Search Console and IndexNow after sitemap generation.
 
 Available rake tasks:
 
@@ -141,9 +142,63 @@ Available rake tasks:
 bin/rails sitemap:validate
 bin/rails sitemap:google:ping
 bin/rails sitemap:index_now:ping
+bin/rails sitemap:index_now:write_key
 bin/rails sitemap:ping
+```
+
+### Google Search Console
+
+Google pinging requires service account credentials:
+
+```ruby
+Indexmap.configure do |config|
+  config.google.credentials = -> { ENV["GOOGLE_SITEMAP"] }
+end
+```
+
+If `config.google.credentials` is blank, `sitemap:google:ping` skips Google submission.
+
+You can optionally override the Search Console property identifier:
+
+```ruby
+Indexmap.configure do |config|
+  config.google.credentials = -> { ENV["GOOGLE_SITEMAP"] }
+  config.google.property = -> { "sc-domain:example.com" }
+end
+```
+
+If `config.google.property` is not set, `indexmap` defaults to `sc-domain:<host>`.
+
+### IndexNow
+
+IndexNow submission requires a key. `indexmap` supports two ways to provide it:
+
+- set `config.index_now.key`
+- or keep a valid verification file at `public/<key>.txt`
+
+Configured-key example:
+
+```ruby
+Indexmap.configure do |config|
+  config.index_now.key = -> { ENV["INDEXNOW_KEY"] }
+end
+```
+
+If `config.index_now.key` is set, `sitemap:create` also writes the matching `public/<key>.txt` verification file automatically.
+
+If you prefer the file-based flow, run:
+
+```bash
 bin/rails sitemap:index_now:write_key
 ```
+
+That task:
+
+- reuses an existing valid key file when present
+- otherwise generates a new key in `public/<key>.txt`
+- makes that key available to `sitemap:index_now:ping` without adding `config.index_now.key`
+
+If neither a configured key nor a valid key file is present, `sitemap:index_now:ping` skips IndexNow submission.
 
 ## Development
 
@@ -165,11 +220,7 @@ Run the full default task:
 bundle exec rake
 ```
 
-Tests generate a coverage report automatically. You can run either:
-
-```bash
-bundle exec rake test
-```
+Tests generate a coverage report automatically.
 
 Note: `Gemfile.lock` is intentionally not tracked for this gem, following normal Ruby library conventions.
 

@@ -21,7 +21,7 @@ module Indexmap
       resolve(@key)
     end
 
-    def key_path(public_path:)
+    def key_path(public_path:, key: self.key)
       configured_path = resolve(@key_path)
       return Pathname(configured_path) unless configured_path.to_s.strip.empty?
       return if key.to_s.strip.empty?

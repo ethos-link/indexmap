@@ -47,4 +47,17 @@ class IndexmapTaskRunnerTest < Minitest::Test
       assert_nil result
     end
   end
+
+  def test_write_index_now_key_can_generate_a_key_when_requested
+    Dir.mktmpdir do |dir|
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://example.com"
+      configuration.public_path = Pathname(dir)
+
+      result = Indexmap::TaskRunner.new(configuration: configuration).write_index_now_key(generate_if_missing: true)
+
+      assert_match(/\A[a-z0-9-]{8,128}\.txt\z/, result.basename.to_s)
+      assert_equal "#{result.basename(".txt")}\n", result.read
+    end
+  end
 end
