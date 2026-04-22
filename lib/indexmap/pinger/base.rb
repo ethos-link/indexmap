@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require "active_support/tagged_logging"
+require "logger"
 require "uri"
 
 module Indexmap
@@ -24,7 +24,9 @@ module Indexmap
         @logger ||= if defined?(Rails) && Rails.respond_to?(:logger) && Rails.logger
           Rails.logger
         else
-          ActiveSupport::TaggedLogging.new(Logger.new($stdout))
+          Logger.new($stderr).tap do |logger|
+            logger.level = Logger::WARN
+          end
         end
       end
 

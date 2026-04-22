@@ -13,7 +13,8 @@ module Indexmap
     end
 
     def endpoint
-      resolve(@endpoint).presence || DEFAULT_ENDPOINT
+      value = resolve(@endpoint)
+      value.to_s.strip.empty? ? DEFAULT_ENDPOINT : value
     end
 
     def key
@@ -22,7 +23,7 @@ module Indexmap
 
     def key_path(public_path:)
       configured_path = resolve(@key_path)
-      return Pathname(configured_path) if configured_path.present?
+      return Pathname(configured_path) unless configured_path.to_s.strip.empty?
       return if key.to_s.strip.empty?
 
       Pathname(public_path).join("#{key}.txt")

@@ -165,6 +165,12 @@ Run the full default task:
 bundle exec rake
 ```
 
+Tests generate a coverage report automatically. You can run either:
+
+```bash
+bundle exec rake test
+```
+
 Note: `Gemfile.lock` is intentionally not tracked for this gem, following normal Ruby library conventions.
 
 ### Git hooks
