@@ -3,17 +3,19 @@
 require "test_helper"
 
 class IndexmapPingerIndexNowTest < Minitest::Test
+  VALID_KEY = "1234567890abcdef1234567890abcdef"
+
   def test_writes_key_file_from_configuration
     Dir.mktmpdir do |dir|
       configuration = Indexmap::Configuration.new
       configuration.base_url = "https://www.example.com"
       configuration.public_path = Pathname(dir)
-      configuration.index_now.key = "test-key"
+      configuration.index_now.key = VALID_KEY
 
       path = Indexmap::Pinger::IndexNow.new(configuration: configuration).write_key_file
 
-      assert_equal Pathname(dir).join("test-key.txt"), path
-      assert_equal "test-key\n", path.read
+      assert_equal Pathname(dir).join("#{VALID_KEY}.txt"), path
+      assert_equal VALID_KEY, path.read
     end
   end
 
@@ -25,16 +27,16 @@ class IndexmapPingerIndexNowTest < Minitest::Test
 
       path = Indexmap::Pinger::IndexNow.new(configuration: configuration).ensure_key_file
 
-      assert_match(/\A[a-z0-9-]{8,128}\.txt\z/, path.basename.to_s)
-      assert_equal "#{path.basename(".txt")}\n", path.read
+      assert_match(/\A[a-f0-9]{32}\.txt\z/, path.basename.to_s)
+      assert_equal path.basename(".txt").to_s, path.read
     end
   end
 
   def test_pings_using_existing_key_file_when_key_is_not_configured
     Dir.mktmpdir do |dir|
       public_path = Pathname(dir)
-      key_path = public_path.join("test-key-123.txt")
-      key_path.write("test-key-123\n")
+      key_path = public_path.join("#{VALID_KEY}.txt")
+      key_path.write(VALID_KEY)
       write_sitemap_files(
         public_path,
         marketing_lastmod: "2026-04-18T00:00:00Z",
@@ -52,11 +54,30 @@ class IndexmapPingerIndexNowTest < Minitest::Test
 
       assert_requested(:post, indexnow_url, times: 1) do |request|
         payload = JSON.parse(request.body)
-        assert_equal "test-key-123", payload.fetch("key")
+        assert_equal VALID_KEY, payload.fetch("key")
+        assert_equal "https://www.example.com/#{VALID_KEY}.txt", payload.fetch("keyLocation")
       end
       assert_equal :submitted, result[:status]
       assert_equal 2, result[:url_count]
       assert_equal 1, result[:batch_count]
+    end
+  end
+
+  def test_ignores_existing_key_file_with_trailing_newline
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      invalid_key_path = public_path.join("1234567890abcdef1234567890abcdef.txt")
+      invalid_key_path.write("#{VALID_KEY}\n")
+
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = public_path
+
+      path = Indexmap::Pinger::IndexNow.new(configuration: configuration).ensure_key_file
+
+      refute_equal invalid_key_path, path
+      assert_match(/\A[a-f0-9]{32}\.txt\z/, path.basename.to_s)
+      assert_equal path.basename(".txt").to_s, path.read
     end
   end
 
@@ -72,7 +93,7 @@ class IndexmapPingerIndexNowTest < Minitest::Test
       configuration = Indexmap::Configuration.new
       configuration.base_url = "https://www.example.com"
       configuration.public_path = public_path
-      configuration.index_now.key = "test-key"
+      configuration.index_now.key = VALID_KEY
 
       indexnow_url = "https://api.indexnow.org/indexnow"
       stub_request(:post, indexnow_url).to_return(status: 200, body: "", headers: {})
@@ -85,6 +106,7 @@ class IndexmapPingerIndexNowTest < Minitest::Test
           "https://www.example.com/pages/features",
           "https://www.example.com/insights/us/restaurants/overview"
         ].sort, payload.fetch("urlList").sort
+        assert_equal "https://www.example.com/#{VALID_KEY}.txt", payload.fetch("keyLocation")
       end
       assert_equal :submitted, result[:status]
       assert_equal 2, result[:url_count]
@@ -104,7 +126,7 @@ class IndexmapPingerIndexNowTest < Minitest::Test
       configuration = Indexmap::Configuration.new
       configuration.base_url = "https://www.example.com"
       configuration.public_path = public_path
-      configuration.index_now.key = "test-key"
+      configuration.index_now.key = VALID_KEY
 
       indexnow_url = "https://api.indexnow.org/indexnow"
       stub_request(:post, indexnow_url).to_return(status: 200, body: "", headers: {})
@@ -155,7 +177,7 @@ class IndexmapPingerIndexNowTest < Minitest::Test
       configuration = Indexmap::Configuration.new
       configuration.base_url = "https://www.example.com"
       configuration.public_path = public_path
-      configuration.index_now.key = "test-key"
+      configuration.index_now.key = VALID_KEY
 
       with_env("INDEXNOW_DRY_RUN" => "1") do
         result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
@@ -179,7 +201,7 @@ class IndexmapPingerIndexNowTest < Minitest::Test
       configuration = Indexmap::Configuration.new
       configuration.base_url = "https://www.example.com"
       configuration.public_path = public_path
-      configuration.index_now.key = "test-key"
+      configuration.index_now.key = VALID_KEY
 
       indexnow_url = "https://api.indexnow.org/indexnow"
       stub_request(:post, indexnow_url).to_return(status: 500, body: "boom", headers: {})
@@ -189,6 +211,37 @@ class IndexmapPingerIndexNowTest < Minitest::Test
       assert_equal :failed, result[:status]
       assert_equal 1, result[:failures].count
       assert_equal 500, result[:failures].first[:status_code]
+    end
+  end
+
+  def test_rejects_invalid_configured_key
+    Dir.mktmpdir do |dir|
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = Pathname(dir)
+      configuration.index_now.key = "test-key"
+
+      error = assert_raises(Indexmap::ConfigurationError) do
+        Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+      end
+
+      assert_equal "IndexNow key must be a 32-character lowercase hexadecimal string", error.message
+    end
+  end
+
+  def test_reuses_existing_key_file_deterministically
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      public_path.join("ffffffffffffffffffffffffffffffff.txt").write("ffffffffffffffffffffffffffffffff")
+      public_path.join("00000000000000000000000000000000.txt").write("00000000000000000000000000000000")
+
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = public_path
+
+      path = Indexmap::Pinger::IndexNow.new(configuration: configuration).ensure_key_file
+
+      assert_equal public_path.join("00000000000000000000000000000000.txt"), path
     end
   end
 

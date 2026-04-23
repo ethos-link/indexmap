@@ -8,13 +8,15 @@ class IndexmapPingerGoogleTest < Minitest::Test
 
   class FakeWebmastersService
     attr_accessor :authorization
-    attr_reader :submitted
+    attr_reader :submitted, :list_sites_calls
 
     def initialize(site_urls:)
       @site_urls = site_urls
+      @list_sites_calls = 0
     end
 
     def list_sites
+      @list_sites_calls += 1
       SiteList.new(@site_urls.map { |site_url| SiteEntry.new(site_url) })
     end
 
@@ -51,6 +53,7 @@ class IndexmapPingerGoogleTest < Minitest::Test
       assert_equal ["sc-domain:example.com", "https://www.example.com/sitemap.xml"], service.submitted
       assert_equal :submitted, result[:status]
       assert_equal 1, result[:sitemap_count]
+      assert_equal 1, service.list_sites_calls
     end
   end
 
@@ -110,6 +113,29 @@ class IndexmapPingerGoogleTest < Minitest::Test
 
       assert_equal :failed, result[:status]
       assert_equal 1, result[:failures].count
+      assert_equal :unauthorized, result[:failures].first[:reason]
+      assert_nil service.submitted
+    end
+  end
+
+  def test_google_authorization_requires_exact_property_match
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      public_path.join("sitemap.xml").write("<sitemapindex/>")
+
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = public_path
+      configuration.google.credentials = "{\"type\":\"service_account\"}"
+
+      service = FakeWebmastersService.new(site_urls: ["sc-domain:myexample.com"])
+      result = Indexmap::Pinger::Google.new(
+        configuration: configuration,
+        service: service,
+        credentials_builder: ->(**) { :fake_authorizer }
+      ).ping
+
+      assert_equal :failed, result[:status]
       assert_equal :unauthorized, result[:failures].first[:reason]
       assert_nil service.submitted
     end

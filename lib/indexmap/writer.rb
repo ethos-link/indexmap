@@ -82,7 +82,8 @@ module Indexmap
       sitemap_sections.each do |section|
         lines << "  <sitemap>"
         lines << "    <loc>#{escape(index_loc(section.filename))}</loc>"
-        lines << "    <lastmod>#{format_lastmod(section_lastmod(section))}</lastmod>"
+        lastmod = section_lastmod(section)
+        lines << "    <lastmod>#{format_lastmod(lastmod)}</lastmod>" if lastmod
         lines << "  </sitemap>"
       end
 
@@ -102,7 +103,7 @@ module Indexmap
 
     def section_lastmod(section)
       timestamps = Array(section.entries).map { |entry| comparable_lastmod(normalize_entry(entry).lastmod) }.compact
-      timestamps.max || Time.now.utc
+      timestamps.max
     end
 
     def format_lastmod(value)
