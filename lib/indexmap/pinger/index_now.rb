@@ -8,6 +8,8 @@ require "time"
 module Indexmap
   module Pinger
     class IndexNow < Base
+      KEY_FORMAT = /\A[a-f0-9]{32}\z/
+
       def initialize(configuration: Indexmap.configuration, connection: nil)
         super(configuration: configuration)
         @connection = connection
@@ -41,20 +43,21 @@ module Indexmap
       end
 
       def write_key_file(key: index_now_configuration.key, path: nil)
-        key = key.to_s.strip
+        key = normalized_configured_key(key)
         return if key.empty?
 
         path ||= index_now_configuration.key_path(public_path: configuration.public_path, key: key)
         FileUtils.mkdir_p(path.dirname)
-        File.write(path, "#{key}\n")
+        File.write(path, key)
         path
       end
 
       def ensure_key_file
-        configured_key = index_now_configuration.key.to_s.strip
+        configured_key = normalized_configured_key(index_now_configuration.key)
         return write_key_file(key: configured_key) unless configured_key.empty?
 
-        return existing_key_file if existing_key_file
+        existing_path = existing_key_file
+        return existing_path if existing_path
 
         key = generated_key
         write_key_file(key: key, path: configuration.public_path.join("#{key}.txt"))
@@ -143,6 +146,9 @@ module Indexmap
 
       def submit_batch(api_key:, urls:)
         payload = {host: hostname, key: api_key, urlList: urls}
+        location = key_location(api_key: api_key)
+        payload[:keyLocation] = location if location
+
         response = index_now_connection.post("/indexnow") do |request|
           request.headers["Content-Type"] = "application/json"
           request.body = payload.to_json
@@ -168,30 +174,50 @@ module Indexmap
       end
 
       def read_api_key
-        configured_key = index_now_configuration.key.to_s.strip
+        configured_key = normalized_configured_key(index_now_configuration.key)
         return configured_key unless configured_key.empty?
 
-        existing_key_file&.read&.strip
+        existing_key_file&.read
       end
 
       def existing_key_file
         configured_path = index_now_configuration.key_path(public_path: configuration.public_path)
         return configured_path if valid_key_file?(configured_path)
 
-        configuration.public_path.glob("*.txt").find { |file| valid_key_file?(file) }
+        configuration.public_path.glob("*.txt").sort.find { |file| valid_key_file?(file) }
+      end
+
+      def key_location(api_key:)
+        path = index_now_configuration.key_path(public_path: configuration.public_path, key: api_key) || existing_key_file
+        return unless path
+
+        public_path = configuration.public_path.expand_path
+        key_path = path.expand_path
+        relative_path = key_path.relative_path_from(public_path)
+
+        URI.join("#{host}/", relative_path.to_s).to_s
+      rescue ArgumentError
+        nil
       end
 
       def valid_key_file?(path)
         return false unless path&.file?
 
         filename = path.basename(".txt").to_s
-        return false unless filename.match?(/\A[a-zA-Z0-9-]{8,128}\z/)
+        return false unless filename.match?(KEY_FORMAT)
 
-        path.read.strip == filename
+        path.read == filename
       end
 
       def generated_key
-        SecureRandom.uuid
+        SecureRandom.hex(16)
+      end
+
+      def normalized_configured_key(value)
+        key = value.to_s.strip
+        return key if key.empty? || key.match?(KEY_FORMAT)
+
+        raise ConfigurationError, "IndexNow key must be a 32-character lowercase hexadecimal string"
       end
 
       def summarize_results(results)

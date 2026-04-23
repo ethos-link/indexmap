@@ -38,7 +38,7 @@ module Indexmap
         sitemap_url = URI.join(host, File.basename(sitemap_file)).to_s
 
         unless authorized?
-          logger.error("Google Search Console does not have access to the site: #{root_domain}")
+          logger.debug("Google Search Console does not have access to the site: #{root_domain}")
           return {
             status: :failed,
             reason: :unauthorized,
@@ -62,7 +62,7 @@ module Indexmap
       end
 
       def authorized?
-        webmasters_service.list_sites.site_entry.any? { |site| site.site_url.include?(root_domain) }
+        @authorized ||= accessible_site_urls.include?(property_identifier)
       end
 
       def property_identifier
@@ -103,6 +103,10 @@ module Indexmap
           submitted: submitted,
           failures: failures
         }
+      end
+
+      def accessible_site_urls
+        @accessible_site_urls ||= Array(webmasters_service.list_sites.site_entry).map(&:site_url)
       end
     end
   end

@@ -77,4 +77,23 @@ class IndexmapWriterTest < Minitest::Test
       refute File.exist?(File.join(directory, "sitemap-pages.xml"))
     end
   end
+
+  def test_omits_sitemap_index_lastmod_when_sections_have_no_lastmod
+    Dir.mktmpdir do |directory|
+      Indexmap::Writer.new(
+        sections: [
+          Indexmap::Section.new(
+            filename: "sitemap-pages.xml",
+            entries: [Indexmap::Entry.new(loc: "https://example.com/about")]
+          )
+        ],
+        public_path: directory,
+        base_url: "https://example.com"
+      ).write
+
+      index_xml = File.read(File.join(directory, "sitemap.xml"))
+
+      refute_includes index_xml, "<lastmod>"
+    end
+  end
 end
