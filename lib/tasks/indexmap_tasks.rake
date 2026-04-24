@@ -41,9 +41,9 @@ namespace :indexmap do
 
       case result[:status]
       when :submitted
-        puts "Submitted #{result[:sitemap_count]} sitemap #{(result[:sitemap_count] == 1) ? "file" : "files"} to Google Search Console."
+        puts "Submitted #{result[:sitemap_count]} sitemap #{(result[:sitemap_count] == 1) ? "file" : "files"} with #{result[:url_count]} URL#{"s" unless result[:url_count] == 1} to Google Search Console."
       when :partial
-        puts "Submitted #{result[:sitemap_count]} sitemap #{(result[:sitemap_count] == 1) ? "file" : "files"} to Google Search Console, with #{result[:failures].count} failure#{"s" unless result[:failures].count == 1}."
+        puts "Submitted #{result[:sitemap_count]} sitemap #{(result[:sitemap_count] == 1) ? "file" : "files"} with #{result[:url_count]} URL#{"s" unless result[:url_count] == 1} to Google Search Console, with #{result[:failures].count} failure#{"s" unless result[:failures].count == 1}."
         result[:failures].each { |failure| puts format_google_ping_failure(failure) }
       when :failed
         result[:failures].each { |failure| puts format_google_ping_failure(failure) }
