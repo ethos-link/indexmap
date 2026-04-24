@@ -8,30 +8,41 @@ class IndexmapConfigurationTest < Minitest::Test
   end
 
   def test_writer_builds_from_configured_callables
-    Indexmap.configure do |config|
-      config.base_url = -> { "https://example.com" }
-      config.public_path = -> { Pathname("tmp/public") }
-      config.sections = -> do
-        [Indexmap::Section.new(filename: "sitemap-pages.xml", entries: [Indexmap::Entry.new(loc: "https://example.com/")])]
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+
+      Indexmap.configure do |config|
+        config.base_url = -> { "https://example.com" }
+        config.public_path = -> { public_path }
+        config.sections = -> do
+          [Indexmap::Section.new(filename: "sitemap-pages.xml", entries: [Indexmap::Entry.new(loc: "https://example.com/")])]
+        end
       end
+
+      Indexmap.configuration.writer.write
+
+      assert_includes public_path.join("sitemap.xml").read, "<loc>https://example.com/sitemap-pages.xml</loc>"
+      assert_includes public_path.join("sitemap-pages.xml").read, "<loc>https://example.com/</loc>"
     end
-
-    writer = Indexmap.configuration.writer
-
-    assert_equal Pathname("tmp/public"), writer.instance_variable_get(:@public_path)
   end
 
   def test_writer_builds_single_file_writer_from_configured_entries
-    Indexmap.configure do |config|
-      config.base_url = "https://example.com"
-      config.format = :single_file
-      config.entries = -> { [Indexmap::Entry.new(loc: "https://example.com/")] }
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+
+      Indexmap.configure do |config|
+        config.base_url = "https://example.com"
+        config.public_path = public_path
+        config.format = :single_file
+        config.entries = -> { [Indexmap::Entry.new(loc: "https://example.com/")] }
+      end
+
+      Indexmap.configuration.writer.write
+
+      assert_includes public_path.join("sitemap.xml").read, "<urlset"
+      assert_includes public_path.join("sitemap.xml").read, "<loc>https://example.com/</loc>"
+      refute public_path.join("sitemap-pages.xml").exist?
     end
-
-    writer = Indexmap.configuration.writer
-
-    assert_equal :single_file, writer.instance_variable_get(:@format)
-    assert_equal [Indexmap::Entry.new(loc: "https://example.com/")], writer.instance_variable_get(:@entries)
   end
 
   def test_writer_raises_without_base_url
