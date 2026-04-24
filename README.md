@@ -80,12 +80,12 @@ end
 Then run:
 
 ```bash
-bin/rails sitemap:create
-bin/rails sitemap:format
-bin/rails sitemap:validate
+bin/rails indexmap:sitemap:create
+bin/rails indexmap:sitemap:format
+bin/rails indexmap:sitemap:validate
 ```
 
-`sitemap:create` is the main task. It writes sitemap files, formats them, and validates the result.
+`indexmap:sitemap:create` is the main task. It writes sitemap files, formats them, and validates the result.
 
 ### Default Index Mode
 
@@ -129,8 +129,15 @@ Indexmap::Validator.new.validate!
 The built-in validator checks for:
 
 - missing sitemap files
+- malformed sitemap XML
+- empty sitemap files
+- missing or duplicate child sitemap references
 - duplicate sitemap URLs
 - parameterized URLs in sitemap entries
+- fragment URLs in sitemap entries
+- non-HTTP or relative URLs
+- URLs outside the configured `base_url`
+- invalid `lastmod` values
 
 ## Search Engine Ping
 
@@ -139,11 +146,11 @@ The built-in validator checks for:
 Available rake tasks:
 
 ```bash
-bin/rails sitemap:validate
-bin/rails sitemap:google:ping
-bin/rails sitemap:index_now:ping
-bin/rails sitemap:index_now:write_key
-bin/rails sitemap:ping
+bin/rails indexmap:sitemap:validate
+bin/rails indexmap:google:ping
+bin/rails indexmap:index_now:ping
+bin/rails indexmap:index_now:write_key
+bin/rails indexmap:ping
 ```
 
 ### Google Search Console
@@ -156,7 +163,7 @@ Indexmap.configure do |config|
 end
 ```
 
-If `config.google.credentials` is blank, `sitemap:google:ping` skips Google submission.
+If `config.google.credentials` is blank, `indexmap:google:ping` skips Google submission.
 
 You can optionally override the Search Console property identifier:
 
@@ -184,21 +191,21 @@ Indexmap.configure do |config|
 end
 ```
 
-If `config.index_now.key` is set, `sitemap:create` also writes the matching `public/<key>.txt` verification file automatically.
+If `config.index_now.key` is set, `indexmap:sitemap:create` also writes the matching `public/<key>.txt` verification file automatically.
 
 If you prefer the file-based flow, run:
 
 ```bash
-bin/rails sitemap:index_now:write_key
+bin/rails indexmap:index_now:write_key
 ```
 
 That task:
 
 - reuses an existing valid key file when present
 - otherwise generates a new key in `public/<key>.txt`
-- makes that key available to `sitemap:index_now:ping` without adding `config.index_now.key`
+- makes that key available to `indexmap:index_now:ping` without adding `config.index_now.key`
 
-If neither a configured key nor a valid key file is present, `sitemap:index_now:ping` skips IndexNow submission.
+If neither a configured key nor a valid key file is present, `indexmap:index_now:ping` skips IndexNow submission.
 
 ## Development
 

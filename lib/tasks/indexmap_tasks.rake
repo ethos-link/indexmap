@@ -1,35 +1,37 @@
-namespace :sitemap do
-  desc "Create sitemap files"
-  task create: :environment do
-    runner = Indexmap::TaskRunner.new
-    create_result = runner.create
-    runner.format
-    validated_files = runner.validate
+namespace :indexmap do
+  namespace :sitemap do
+    desc "Create sitemap files"
+    task create: :environment do
+      runner = Indexmap::TaskRunner.new
+      create_result = runner.create
+      runner.format
+      validated_files = runner.validate
 
-    puts "Created, formatted, and validated #{file_count(validated_files)} in #{public_directory(runner)}."
-    puts "IndexNow key file: #{create_result[:index_now_key_path]}" if create_result[:index_now_key_path]
-  end
+      puts "Created, formatted, and validated #{file_count(validated_files)} in #{public_directory(runner)}."
+      puts "IndexNow key file: #{create_result[:index_now_key_path]}" if create_result[:index_now_key_path]
+    end
 
-  desc "Format sitemap files for better readability"
-  task format: :environment do
-    runner = Indexmap::TaskRunner.new
-    formatted_files = runner.format
+    desc "Format sitemap files for better readability"
+    task format: :environment do
+      runner = Indexmap::TaskRunner.new
+      formatted_files = runner.format
 
-    puts "Formatted #{file_count(formatted_files)} in #{public_directory(runner)}."
-  end
+      puts "Formatted #{file_count(formatted_files)} in #{public_directory(runner)}."
+    end
 
-  desc "Validate sitemap shape and URL hygiene"
-  task validate: :environment do
-    runner = Indexmap::TaskRunner.new
-    validated_files = runner.validate
+    desc "Validate sitemap shape and URL hygiene"
+    task validate: :environment do
+      runner = Indexmap::TaskRunner.new
+      validated_files = runner.validate
 
-    puts "Validated #{file_count(validated_files)} for sitemap shape and URL hygiene."
+      puts "Validated #{file_count(validated_files)} for sitemap shape and URL hygiene."
+    end
   end
 
   desc "Ping all configured search engines"
   task ping: :environment do
-    Rake::Task["sitemap:index_now:ping"].invoke
-    Rake::Task["sitemap:google:ping"].invoke
+    Rake::Task["indexmap:index_now:ping"].invoke
+    Rake::Task["indexmap:google:ping"].invoke
   end
 
   namespace :google do
