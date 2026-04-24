@@ -8,10 +8,11 @@ class IndexmapPingerGoogleTest < Minitest::Test
 
   class FakeWebmastersService
     attr_accessor :authorization
-    attr_reader :submitted, :list_sites_calls
+    attr_reader :submitted, :submissions, :list_sites_calls
 
     def initialize(site_urls:)
       @site_urls = site_urls
+      @submissions = []
       @list_sites_calls = 0
     end
 
@@ -22,6 +23,7 @@ class IndexmapPingerGoogleTest < Minitest::Test
 
     def submit_sitemap(property, sitemap_url)
       @submitted = [property, sitemap_url]
+      @submissions << @submitted
     end
   end
 
@@ -53,7 +55,56 @@ class IndexmapPingerGoogleTest < Minitest::Test
       assert_equal ["sc-domain:example.com", "https://www.example.com/sitemap.xml"], service.submitted
       assert_equal :submitted, result[:status]
       assert_equal 1, result[:sitemap_count]
+      assert_equal 0, result[:url_count]
       assert_equal 1, service.list_sites_calls
+    end
+  end
+
+  def test_reports_unique_url_count_from_submitted_sitemaps
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      public_path.join("sitemap.xml").write(<<~XML)
+        <?xml version="1.0" encoding="UTF-8"?>
+        <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <sitemap><loc>https://www.example.com/sitemap-pages.xml</loc></sitemap>
+          <sitemap><loc>https://www.example.com/sitemap-posts.xml</loc></sitemap>
+        </sitemapindex>
+      XML
+      public_path.join("sitemap-pages.xml").write(<<~XML)
+        <?xml version="1.0" encoding="UTF-8"?>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://www.example.com/</loc></url>
+          <url><loc>https://www.example.com/about</loc></url>
+        </urlset>
+      XML
+      public_path.join("sitemap-posts.xml").write(<<~XML)
+        <?xml version="1.0" encoding="UTF-8"?>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://www.example.com/about</loc></url>
+          <url><loc>https://www.example.com/blog</loc></url>
+        </urlset>
+      XML
+
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = public_path
+      configuration.google.credentials = "{\"type\":\"service_account\"}"
+
+      service = FakeWebmastersService.new(site_urls: ["sc-domain:example.com"])
+      result = Indexmap::Pinger::Google.new(
+        configuration: configuration,
+        service: service,
+        credentials_builder: ->(**) { :fake_authorizer }
+      ).ping
+
+      assert_equal :submitted, result[:status]
+      assert_equal 3, result[:sitemap_count]
+      assert_equal 3, result[:url_count]
+      assert_equal [
+        ["sc-domain:example.com", "https://www.example.com/sitemap-pages.xml"],
+        ["sc-domain:example.com", "https://www.example.com/sitemap-posts.xml"],
+        ["sc-domain:example.com", "https://www.example.com/sitemap.xml"]
+      ], service.submissions
     end
   end
 

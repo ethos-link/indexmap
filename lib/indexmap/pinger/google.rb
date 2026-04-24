@@ -20,10 +20,11 @@ module Indexmap
           return {status: :skipped, reason: :missing_credentials}
         end
 
-        results = sitemap_files.map { |sitemap_file| ping_sitemap(sitemap_file) }
+        files = sitemap_files
+        results = files.map { |sitemap_file| ping_sitemap(sitemap_file) }
         return {status: :skipped, reason: :no_sitemaps} if results.empty?
 
-        summarize_results(results)
+        summarize_results(results, url_count: sitemap_url_count(files))
       end
 
       private
@@ -90,16 +91,26 @@ module Indexmap
         )
       end
 
-      def summarize_results(results)
+      def sitemap_url_count(files)
+        files.each_with_object(Set.new) do |sitemap_file, urls|
+          Parser.new(path: sitemap_file).entries.each do |entry|
+            loc = entry.loc.to_s.strip
+            urls.add(loc) unless loc.empty?
+          end
+        end.count
+      end
+
+      def summarize_results(results, url_count:)
         submitted = results.select { |result| result[:status] == :submitted }
         failures = results.select { |result| result[:status] == :failed }
 
-        return {status: :submitted, sitemap_count: submitted.count, submitted: submitted} if failures.empty?
-        return {status: :failed, sitemap_count: 0, failures: failures} if submitted.empty?
+        return {status: :submitted, sitemap_count: submitted.count, url_count: url_count, submitted: submitted} if failures.empty?
+        return {status: :failed, sitemap_count: 0, url_count: 0, failures: failures} if submitted.empty?
 
         {
           status: :partial,
           sitemap_count: submitted.count,
+          url_count: url_count,
           submitted: submitted,
           failures: failures
         }
