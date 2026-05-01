@@ -19,6 +19,26 @@ class IndexmapPingerIndexNowTest < Minitest::Test
     end
   end
 
+  def test_does_not_rewrite_existing_valid_key_file
+    Dir.mktmpdir do |dir|
+      path = Pathname(dir).join("#{VALID_KEY}.txt")
+      path.write(VALID_KEY)
+      previous_mtime = path.mtime
+
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://www.example.com"
+      configuration.public_path = Pathname(dir)
+      configuration.index_now.key = VALID_KEY
+
+      sleep 0.01
+      result = Indexmap::Pinger::IndexNow.new(configuration: configuration).write_key_file
+
+      assert_equal path, result
+      assert_equal previous_mtime, path.mtime
+      assert_equal VALID_KEY, path.read
+    end
+  end
+
   def test_ensure_key_file_generates_a_key_when_configuration_is_missing
     Dir.mktmpdir do |dir|
       configuration = Indexmap::Configuration.new

@@ -5,7 +5,7 @@ module Indexmap
     DEFAULT_ENDPOINT = "https://api.indexnow.org"
     DEFAULT_MAX_URLS_PER_REQUEST = 500
 
-    attr_writer :dry_run, :endpoint, :key, :key_path, :max_urls_per_request
+    attr_writer :dry_run, :endpoint, :key, :key_path, :max_urls_per_request, :write_key_file
 
     def dry_run?
       value = resolve(@dry_run)
@@ -19,6 +19,13 @@ module Indexmap
 
     def key
       resolve(@key)
+    end
+
+    def write_key_file?
+      value = resolve(@write_key_file)
+      return !key.to_s.strip.empty? if value.nil?
+
+      value == true || value.to_s == "1"
     end
 
     def key_path(public_path:, key: self.key)

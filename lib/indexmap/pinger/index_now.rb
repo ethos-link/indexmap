@@ -47,6 +47,8 @@ module Indexmap
         return if key.empty?
 
         path ||= index_now_configuration.key_path(public_path: configuration.public_path, key: key)
+        return path if valid_key_file?(path)
+
         FileUtils.mkdir_p(path.dirname)
         File.write(path, key)
         path

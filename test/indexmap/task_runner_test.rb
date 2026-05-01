@@ -59,6 +59,55 @@ class IndexmapTaskRunnerTest < Minitest::Test
     end
   end
 
+  def test_create_reuses_existing_index_now_key_file
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      key_path = public_path.join("#{VALID_KEY}.txt")
+      key_path.write(VALID_KEY)
+      previous_mtime = key_path.mtime
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://example.com"
+      configuration.public_path = public_path
+      configuration.sections = [
+        Indexmap::Section.new(
+          filename: "sitemap-pages.xml",
+          entries: [Indexmap::Entry.new(loc: "https://example.com/about")]
+        )
+      ]
+      configuration.index_now.key = VALID_KEY
+
+      sleep 0.01
+      result = Indexmap::TaskRunner.new(configuration: configuration).create
+
+      assert_equal key_path, result[:index_now_key_path]
+      assert_equal previous_mtime, key_path.mtime
+      assert_equal VALID_KEY, key_path.read
+    end
+  end
+
+  def test_create_can_skip_index_now_key_file_writing
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://example.com"
+      configuration.public_path = public_path
+      configuration.sections = [
+        Indexmap::Section.new(
+          filename: "sitemap-pages.xml",
+          entries: [Indexmap::Entry.new(loc: "https://example.com/about")]
+        )
+      ]
+      configuration.index_now.key = VALID_KEY
+      configuration.index_now.write_key_file = false
+
+      result = Indexmap::TaskRunner.new(configuration: configuration).create
+
+      refute public_path.join("#{VALID_KEY}.txt").exist?
+      assert_nil result[:index_now_key_path]
+      assert_equal [public_path.join("sitemap-pages.xml").to_s, public_path.join("sitemap.xml").to_s], result[:files]
+    end
+  end
+
   def test_write_index_now_key_returns_nil_when_key_is_not_configured
     Dir.mktmpdir do |dir|
       configuration = Indexmap::Configuration.new

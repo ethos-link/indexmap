@@ -10,7 +10,7 @@ module Indexmap
 
     def create
       written_files = Indexmap.create(configuration: configuration)
-      index_now_key_path = write_index_now_key
+      index_now_key_path = write_index_now_key if configuration.index_now.write_key_file?
       configuration.run_after_create_callbacks
 
       {files: written_files.map(&:to_s), written_files: written_files, index_now_key_path: index_now_key_path}
