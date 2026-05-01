@@ -84,12 +84,32 @@ class IndexmapConfigurationTest < Minitest::Test
       config.google.property = -> { "sc-domain:example.com" }
       config.index_now.key = -> { "example-key" }
       config.index_now.max_urls_per_request = -> { 250 }
+      config.index_now.write_key_file = -> { false }
     end
 
     assert_equal "{\"type\":\"service_account\"}", Indexmap.configuration.google.credentials
     assert_equal "sc-domain:example.com", Indexmap.configuration.google.property
     assert_equal "example-key", Indexmap.configuration.index_now.key
     assert_equal 250, Indexmap.configuration.index_now.max_urls_per_request
+    refute Indexmap.configuration.index_now.write_key_file?
+  end
+
+  def test_index_now_key_file_writing_defaults_to_configured_key_presence
+    config = Indexmap::Configuration.new
+
+    refute config.index_now.write_key_file?
+
+    config.index_now.key = "1234567890abcdef1234567890abcdef"
+
+    assert config.index_now.write_key_file?
+  end
+
+  def test_index_now_key_file_writing_can_be_disabled_with_a_configured_key
+    config = Indexmap::Configuration.new
+    config.index_now.key = "1234567890abcdef1234567890abcdef"
+    config.index_now.write_key_file = false
+
+    refute config.index_now.write_key_file?
   end
 
   def test_named_outputs_inherit_configuration_defaults

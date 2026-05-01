@@ -273,7 +273,25 @@ Indexmap.configure do |config|
 end
 ```
 
-If `config.index_now.key` is set, `indexmap:sitemap:create` also writes the matching `public/<key>.txt` verification file automatically.
+If `config.index_now.key` is set, `indexmap:sitemap:create` also ensures the matching `public/<key>.txt` verification file exists. It leaves an existing valid key file unchanged.
+
+If your sitemap XML is generated in a staging directory but the IndexNow key is served from a different public path, configure the key path explicitly:
+
+```ruby
+Indexmap.configure do |config|
+  config.index_now.key = -> { ENV["INDEXNOW_KEY"] }
+  config.index_now.key_path = -> { Rails.public_path.join("#{ENV.fetch("INDEXNOW_KEY")}.txt") }
+end
+```
+
+You can also disable automatic key-file writes entirely:
+
+```ruby
+Indexmap.configure do |config|
+  config.index_now.key = -> { ENV["INDEXNOW_KEY"] }
+  config.index_now.write_key_file = false
+end
+```
 
 If you prefer the file-based flow, run:
 
