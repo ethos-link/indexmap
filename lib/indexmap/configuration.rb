@@ -4,7 +4,7 @@ module Indexmap
   class Configuration
     VALID_FORMATS = %i[index single_file].freeze
 
-    attr_writer :base_url, :entries, :format, :index_filename, :public_path, :sections, :store
+    attr_writer :base_url, :entries, :format, :index_filename, :public_path, :sections
 
     def initialize
       @format = :index
@@ -49,10 +49,6 @@ module Indexmap
       Array(resolve(@sections))
     end
 
-    def store
-      resolve(@store)
-    end
-
     def output(name)
       output = output_for(name)
       yield(output) if block_given?
@@ -61,12 +57,13 @@ module Indexmap
 
     def output_for(name = :default)
       normalized_name = name.to_sym
-      @outputs[normalized_name] ||= Output.new(name: normalized_name, configuration: self)
+      @outputs[normalized_name] ||= Output.new(configuration: self)
     end
 
     def after_create(&block)
-      @after_create_callbacks << block if block
-      @after_create_callbacks
+      raise ArgumentError, "after_create requires a block" unless block
+
+      @after_create_callbacks << block
     end
 
     def run_after_create_callbacks

@@ -4,10 +4,9 @@ module Indexmap
   class Output
     VALID_FORMATS = %i[index single_file].freeze
 
-    attr_writer :base_url, :entries, :format, :index_filename, :public_path, :sections, :store
+    attr_writer :base_url, :entries, :format, :index_filename, :public_path, :sections
 
-    def initialize(name:, configuration:)
-      @name = name.to_sym
+    def initialize(configuration:)
       @configuration = configuration
     end
 
@@ -41,10 +40,6 @@ module Indexmap
       Array(resolved_sections.nil? ? configuration.sections : resolved_sections)
     end
 
-    def store
-      resolve(@store) || configuration.store || Stores::File.new(public_path)
-    end
-
     def writer
       raise ConfigurationError, "Indexmap base_url is not configured" if base_url.to_s.strip.empty?
 
@@ -70,7 +65,7 @@ module Indexmap
 
     private
 
-    attr_reader :configuration, :name
+    attr_reader :configuration
 
     def resolve(value)
       value.respond_to?(:call) ? value.call : value

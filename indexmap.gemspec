@@ -36,7 +36,7 @@ Gem::Specification.new do |spec|
     candidate_files = git_files.empty? ? Dir.glob("{lib,test}/**/*", File::FNM_DOTMATCH) + allowed_files : git_files
 
     candidate_files.select do |file|
-      next false if File.directory?(file)
+      next false unless File.file?(file)
 
       allowed_files.include?(file) || allowed_prefixes.any? { |prefix| file.start_with?(prefix) }
     end.uniq

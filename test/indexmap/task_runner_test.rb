@@ -5,11 +5,12 @@ require "test_helper"
 class IndexmapTaskRunnerTest < Minitest::Test
   VALID_KEY = "1234567890abcdef1234567890abcdef"
 
-  def test_create_removes_existing_sitemap_files_writes_new_sitemap_and_key_file
+  def test_create_writes_new_sitemap_and_key_file_without_deleting_unrelated_files
     Dir.mktmpdir do |dir|
       public_path = Pathname(dir)
       public_path.join("sitemap.xml").write("old")
       public_path.join("sitemap-pages.xml.gz").write("old")
+      public_path.join("sitemap-extra.xml").write("existing")
 
       configuration = Indexmap::Configuration.new
       configuration.base_url = "https://example.com"
@@ -24,32 +25,37 @@ class IndexmapTaskRunnerTest < Minitest::Test
 
       result = Indexmap::TaskRunner.new(configuration: configuration).create
 
-      assert_equal false, public_path.join("sitemap-pages.xml.gz").exist?
+      assert public_path.join("sitemap-pages.xml.gz").exist?
+      assert_equal "existing", public_path.join("sitemap-extra.xml").read
       assert_includes public_path.join("sitemap.xml").read, "<sitemapindex"
       assert_equal VALID_KEY, public_path.join("#{VALID_KEY}.txt").read
       assert_equal [public_path.join("sitemap-pages.xml").to_s, public_path.join("sitemap.xml").to_s], result[:files]
-      assert_equal %w[sitemap-pages.xml sitemap.xml], result[:artifacts].map(&:filename)
+      assert_equal [public_path.join("sitemap-pages.xml"), public_path.join("sitemap.xml")], result[:written_files]
       assert_equal public_path.join("#{VALID_KEY}.txt"), result[:index_now_key_path]
     end
   end
 
-  def test_create_runs_after_create_callbacks
+  def test_create_runs_after_create_callbacks_after_validation
     Dir.mktmpdir do |dir|
       calls = []
+      public_path = Pathname(dir)
       configuration = Indexmap::Configuration.new
       configuration.base_url = "https://example.com"
-      configuration.public_path = Pathname(dir)
+      configuration.public_path = public_path
       configuration.sections = [
         Indexmap::Section.new(
           filename: "sitemap-pages.xml",
           entries: [Indexmap::Entry.new(loc: "https://example.com/about")]
         )
       ]
-      configuration.after_create { calls << :called }
+      configuration.after_create do
+        calls << :called
+        calls << public_path.join("sitemap.xml").read.include?("<sitemapindex")
+      end
 
       Indexmap::TaskRunner.new(configuration: configuration).create
 
-      assert_equal [:called], calls
+      assert_equal [:called, true], calls
     end
   end
 

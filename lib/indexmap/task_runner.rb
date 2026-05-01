@@ -9,9 +9,11 @@ module Indexmap
     end
 
     def create
-      remove_existing_sitemap_files
-      artifacts = Indexmap.create(configuration: configuration, run_after_create: true)
-      {files: sitemap_files, artifacts: artifacts, index_now_key_path: write_index_now_key}
+      written_files = Indexmap.create(configuration: configuration)
+      index_now_key_path = write_index_now_key
+      configuration.run_after_create_callbacks
+
+      {files: written_files.map(&:to_s), written_files: written_files, index_now_key_path: index_now_key_path}
     end
 
     def format
@@ -53,12 +55,6 @@ module Indexmap
 
     def default_output
       configuration.output_for(:default)
-    end
-
-    def remove_existing_sitemap_files
-      Dir.glob(public_path.join("sitemap*.xml*")).each do |file_path|
-        File.delete(file_path)
-      end
     end
 
     def sitemap_files

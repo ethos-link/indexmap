@@ -16,13 +16,13 @@ module Indexmap
     def write
       FileUtils.mkdir_p(public_path)
 
-      return public_path.join(index_filename).write(urlset_xml(entries)) if single_file?
+      return [write_file(index_filename, urlset_xml(entries))] if single_file?
 
-      sections.each do |section|
-        public_path.join(section.filename).write(urlset_xml(section.entries))
+      paths = sections.map do |section|
+        write_file(section.filename, urlset_xml(section.entries))
       end
 
-      public_path.join(index_filename).write(index_xml(sections))
+      paths + [write_file(index_filename, index_xml(sections))]
     end
 
     attr_accessor :public_path
@@ -55,6 +55,12 @@ module Indexmap
 
     def single_file?
       format == :single_file
+    end
+
+    def write_file(filename, body)
+      path = public_path.join(filename)
+      path.write(body)
+      path
     end
 
     def urlset_xml(entries)
