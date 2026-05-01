@@ -114,6 +114,147 @@ end
 
 In `:single_file` mode, `indexmap` writes a `urlset` directly to `sitemap.xml` and reads entries from `config.entries` instead of `config.sections`.
 
+### Named Outputs
+
+Most apps only need the default output. Use named outputs when one part of the
+sitemap must be generated separately, for example when static pages can be
+generated during deploy but database-heavy pages should refresh later.
+
+```ruby
+Indexmap.configure do |config|
+  config.base_url = -> { "https://example.com" }
+  config.public_path = -> { Rails.root.join("storage/sitemaps") }
+  config.sections = -> { Sitemap.sections }
+
+  config.output :insights_data do |output|
+    output.format = :single_file
+    output.index_filename = "sitemap-insights-data.xml"
+    output.entries = -> { Sitemap.insights_data_entries }
+  end
+end
+```
+
+Generate the default output:
+
+```ruby
+Indexmap.create
+```
+
+Generate only the named output:
+
+```ruby
+Indexmap.create(:insights_data)
+```
+
+Named outputs inherit `base_url`, `public_path`, `format`, and `store` from the
+main configuration unless you override them.
+
+### Artifact Stores
+
+By default, `indexmap` writes files to `config.public_path`. That is still the
+simplest setup for static sites and single-server apps.
+
+For apps that serve sitemaps through a controller or upload them to shared
+storage, configure a store. `indexmap` includes a file store:
+
+```ruby
+Indexmap.configure do |config|
+  config.base_url = -> { "https://example.com" }
+  config.public_path = -> { Rails.root.join("storage/sitemaps") }
+  config.store = -> { Indexmap::Stores::File.new(Rails.root.join("storage/sitemaps")) }
+  config.sections = -> { Sitemap.sections }
+end
+```
+
+The file store is useful with a Rails controller:
+
+```ruby
+class SitemapsController < ApplicationController
+  def show
+    artifact = Indexmap.fetch!(filename)
+
+    fresh_when etag: artifact.checksum, last_modified: artifact.updated_at
+    render plain: artifact.body, content_type: artifact.content_type unless performed?
+  rescue Indexmap::Error
+    head :not_found
+  end
+
+  private
+
+  def filename
+    params[:name].present? ? "sitemap-#{params[:name]}.xml" : "sitemap.xml"
+  end
+end
+```
+
+Routes:
+
+```ruby
+get "sitemap.xml", to: "sitemaps#show"
+get "sitemap-:name.xml", to: "sitemaps#show"
+```
+
+For object storage, implement the same small store API:
+
+```ruby
+class S3SitemapStore
+  def upload(filename:, body:, content_type: "application/xml; charset=utf-8")
+    # upload body to object storage
+    Indexmap::Artifact.new(
+      filename: filename,
+      body: body,
+      content_type: content_type,
+      updated_at: Time.now.utc
+    )
+  end
+
+  def fetch(filename)
+    # return nil when the object is missing
+  end
+
+  def fetch!(filename)
+    fetch(filename) || raise(Indexmap::Error, "Missing sitemap artifact: #{filename}")
+  end
+end
+```
+
+### Deferred Dynamic Sections
+
+Use `after_create` when `indexmap:sitemap:create` should generate the cheap
+default sitemap now and schedule slower dynamic sections for the background.
+
+```ruby
+Indexmap.configure do |config|
+  config.base_url = -> { "https://example.com" }
+  config.public_path = -> { Rails.root.join("storage/sitemaps") }
+  config.store = -> { Indexmap::Stores::File.new(Rails.root.join("storage/sitemaps")) }
+  config.sections = -> { Sitemap.sections }
+
+  config.output :insights_data do |output|
+    output.format = :single_file
+    output.index_filename = "sitemap-insights-data.xml"
+    output.entries = -> { Sitemap.insights_data_entries }
+  end
+
+  config.after_create do
+    Insights::SitemapRefreshJob.perform_later
+  end
+end
+```
+
+Then the job can stay small:
+
+```ruby
+class Insights::SitemapRefreshJob < ApplicationJob
+  def perform
+    Indexmap.create(:insights_data)
+  end
+end
+```
+
+This keeps deploys fast: the deploy only waits for `indexmap:sitemap:create`,
+while database-dependent output is refreshed by the job backend.
+
 ## Validation And Parsing
 
 `indexmap` also includes small utilities for working with generated sitemap files:

@@ -2,7 +2,6 @@
 
 require "net/http"
 require "nokogiri"
-require "pathname"
 require "uri"
 
 module Indexmap

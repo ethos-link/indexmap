@@ -28,7 +28,28 @@ class IndexmapTaskRunnerTest < Minitest::Test
       assert_includes public_path.join("sitemap.xml").read, "<sitemapindex"
       assert_equal VALID_KEY, public_path.join("#{VALID_KEY}.txt").read
       assert_equal [public_path.join("sitemap-pages.xml").to_s, public_path.join("sitemap.xml").to_s], result[:files]
+      assert_equal %w[sitemap-pages.xml sitemap.xml], result[:artifacts].map(&:filename)
       assert_equal public_path.join("#{VALID_KEY}.txt"), result[:index_now_key_path]
+    end
+  end
+
+  def test_create_runs_after_create_callbacks
+    Dir.mktmpdir do |dir|
+      calls = []
+      configuration = Indexmap::Configuration.new
+      configuration.base_url = "https://example.com"
+      configuration.public_path = Pathname(dir)
+      configuration.sections = [
+        Indexmap::Section.new(
+          filename: "sitemap-pages.xml",
+          entries: [Indexmap::Entry.new(loc: "https://example.com/about")]
+        )
+      ]
+      configuration.after_create { calls << :called }
+
+      Indexmap::TaskRunner.new(configuration: configuration).create
+
+      assert_equal [:called], calls
     end
   end
 

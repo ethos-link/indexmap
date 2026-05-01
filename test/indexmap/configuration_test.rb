@@ -91,4 +91,88 @@ class IndexmapConfigurationTest < Minitest::Test
     assert_equal "example-key", Indexmap.configuration.index_now.key
     assert_equal 250, Indexmap.configuration.index_now.max_urls_per_request
   end
+
+  def test_named_outputs_inherit_configuration_defaults
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+
+      Indexmap.configure do |config|
+        config.base_url = "https://example.com"
+        config.public_path = public_path
+        config.output :reports do |output|
+          output.sections = [
+            Indexmap::Section.new(
+              filename: "sitemap-reports.xml",
+              entries: [Indexmap::Entry.new(loc: "https://example.com/reports")]
+            )
+          ]
+        end
+      end
+
+      artifacts = Indexmap.render(:reports)
+
+      assert_equal %w[sitemap-reports.xml sitemap.xml], artifacts.map(&:filename)
+      assert_includes artifacts.find { |artifact| artifact.filename == "sitemap.xml" }.body,
+        "https://example.com/sitemap-reports.xml"
+    end
+  end
+
+  def test_create_uploads_named_output_to_configured_store
+    Dir.mktmpdir do |dir|
+      store = Indexmap::Stores::File.new(Pathname(dir).join("sitemaps"))
+
+      Indexmap.configure do |config|
+        config.base_url = "https://example.com"
+        config.store = store
+        config.output :dynamic do |output|
+          output.sections = [
+            Indexmap::Section.new(
+              filename: "sitemap-dynamic.xml",
+              entries: [Indexmap::Entry.new(loc: "https://example.com/dynamic")]
+            )
+          ]
+        end
+      end
+
+      Indexmap.create(:dynamic)
+
+      assert_includes store.fetch!("sitemap-dynamic.xml").body, "https://example.com/dynamic"
+      assert_includes store.fetch!("sitemap.xml").body, "https://example.com/sitemap-dynamic.xml"
+    end
+  end
+
+  def test_create_uploads_single_file_named_output_without_default_index
+    Dir.mktmpdir do |dir|
+      store = Indexmap::Stores::File.new(Pathname(dir).join("sitemaps"))
+
+      Indexmap.configure do |config|
+        config.base_url = "https://example.com"
+        config.store = store
+        config.output :dynamic do |output|
+          output.format = :single_file
+          output.index_filename = "sitemap-dynamic.xml"
+          output.entries = [
+            Indexmap::Entry.new(loc: "https://example.com/dynamic")
+          ]
+        end
+      end
+
+      Indexmap.create(:dynamic)
+
+      assert_nil store.fetch("sitemap.xml")
+      assert_includes store.fetch!("sitemap-dynamic.xml").body, "https://example.com/dynamic"
+    end
+  end
+
+  def test_after_create_callbacks_run_for_task_runner_create
+    calls = []
+
+    Indexmap.configure do |config|
+      config.after_create { calls << :called }
+    end
+
+    Indexmap.configuration.run_after_create_callbacks
+
+    assert_equal [:called], calls
+  end
 end

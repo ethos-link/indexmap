@@ -25,9 +25,11 @@ module Indexmap
       public_path.join(index_filename).write(index_xml(sections))
     end
 
+    attr_accessor :public_path
+
     private
 
-    attr_reader :base_url, :entries, :format, :index_filename, :public_path, :sections
+    attr_reader :base_url, :entries, :format, :index_filename, :sections
 
     def normalize_entries(raw_entries)
       Array(raw_entries).map { |entry| normalize_entry(entry) }
