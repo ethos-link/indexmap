@@ -4,10 +4,8 @@ namespace :indexmap do
     task create: :environment do
       runner = Indexmap::TaskRunner.new
       create_result = runner.create
-      runner.format
-      validated_files = runner.validate
 
-      puts "Created, formatted, and validated #{file_count(validated_files)} in #{public_directory(runner)}."
+      puts "Created, formatted, and validated #{file_count(create_result[:files])} in #{public_directory(runner)}."
       puts "IndexNow key file: #{create_result[:index_now_key_path]}" if create_result[:index_now_key_path]
     end
 

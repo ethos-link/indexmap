@@ -9,6 +9,8 @@ module Indexmap
     def initialize
       @format = :index
       @index_filename = "sitemap.xml"
+      @after_create_callbacks = []
+      @outputs = {}
     end
 
     def base_url
@@ -47,27 +49,29 @@ module Indexmap
       Array(resolve(@sections))
     end
 
+    def output(name)
+      output = output_for(name)
+      yield(output) if block_given?
+      output
+    end
+
+    def output_for(name = :default)
+      normalized_name = name.to_sym
+      @outputs[normalized_name] ||= Output.new(configuration: self)
+    end
+
+    def after_create(&block)
+      raise ArgumentError, "after_create requires a block" unless block
+
+      @after_create_callbacks << block
+    end
+
+    def run_after_create_callbacks
+      @after_create_callbacks.each(&:call)
+    end
+
     def writer
-      raise ConfigurationError, "Indexmap base_url is not configured" if base_url.to_s.strip.empty?
-
-      unless VALID_FORMATS.include?(format)
-        raise ConfigurationError, "Indexmap format must be one of: #{VALID_FORMATS.join(", ")}"
-      end
-
-      if format == :single_file
-        raise ConfigurationError, "Indexmap entries are not configured" if entries.empty?
-      elsif sections.empty?
-        raise ConfigurationError, "Indexmap sections are not configured" if sections.empty?
-      end
-
-      Writer.new(
-        entries: entries,
-        format: format,
-        sections: sections,
-        public_path: public_path,
-        base_url: base_url,
-        index_filename: index_filename
-      )
+      output_for(:default).writer
     end
 
     private

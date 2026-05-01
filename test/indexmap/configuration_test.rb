@@ -91,4 +91,138 @@ class IndexmapConfigurationTest < Minitest::Test
     assert_equal "example-key", Indexmap.configuration.index_now.key
     assert_equal 250, Indexmap.configuration.index_now.max_urls_per_request
   end
+
+  def test_named_outputs_inherit_configuration_defaults
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+
+      Indexmap.configure do |config|
+        config.base_url = "https://example.com"
+        config.public_path = public_path
+        config.output :reports do |output|
+          output.sections = [
+            Indexmap::Section.new(
+              filename: "sitemap-reports.xml",
+              entries: [Indexmap::Entry.new(loc: "https://example.com/reports")]
+            )
+          ]
+        end
+      end
+
+      files = Indexmap.create(:reports)
+
+      assert_equal [
+        public_path.join("sitemap-reports.xml"),
+        public_path.join("sitemap.xml")
+      ], files
+      assert_includes public_path.join("sitemap.xml").read, "https://example.com/sitemap-reports.xml"
+    end
+  end
+
+  def test_create_writes_named_output_to_public_path
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+
+      Indexmap.configure do |config|
+        config.base_url = "https://example.com"
+        config.public_path = public_path
+        config.output :dynamic do |output|
+          output.sections = [
+            Indexmap::Section.new(
+              filename: "sitemap-dynamic.xml",
+              entries: [Indexmap::Entry.new(loc: "https://example.com/dynamic")]
+            )
+          ]
+        end
+      end
+
+      files = Indexmap.create(:dynamic)
+
+      assert_equal [
+        public_path.join("sitemap-dynamic.xml"),
+        public_path.join("sitemap.xml")
+      ], files
+      assert_includes public_path.join("sitemap-dynamic.xml").read, "https://example.com/dynamic"
+      assert_includes public_path.join("sitemap.xml").read, "https://example.com/sitemap-dynamic.xml"
+    end
+  end
+
+  def test_create_preserves_existing_files_when_validation_fails
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      public_path.join("sitemap.xml").write("old index")
+      public_path.join("sitemap-pages.xml").write("old child")
+
+      Indexmap.configure do |config|
+        config.base_url = "https://example.com"
+        config.public_path = public_path
+        config.sections = [
+          Indexmap::Section.new(
+            filename: "sitemap-pages.xml",
+            entries: [Indexmap::Entry.new(loc: "https://example.com/about?utm_source=test")]
+          )
+        ]
+      end
+
+      error = assert_raises(Indexmap::ValidationError) { Indexmap.create }
+
+      assert_match "Parameterized sitemap URLs detected", error.message
+      assert_equal "old index", public_path.join("sitemap.xml").read
+      assert_equal "old child", public_path.join("sitemap-pages.xml").read
+    end
+  end
+
+  def test_create_writes_single_file_named_output_without_default_index
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+
+      Indexmap.configure do |config|
+        config.base_url = "https://example.com"
+        config.public_path = public_path
+        config.output :dynamic do |output|
+          output.format = :single_file
+          output.index_filename = "sitemap-dynamic.xml"
+          output.entries = [
+            Indexmap::Entry.new(loc: "https://example.com/dynamic")
+          ]
+        end
+      end
+
+      files = Indexmap.create(:dynamic)
+
+      assert_equal [public_path.join("sitemap-dynamic.xml")], files
+      refute public_path.join("sitemap.xml").exist?
+      assert_includes public_path.join("sitemap-dynamic.xml").read, "https://example.com/dynamic"
+    end
+  end
+
+  def test_create_preserves_existing_named_output_when_validation_fails
+    Dir.mktmpdir do |dir|
+      public_path = Pathname(dir)
+      public_path.join("sitemap-dynamic.xml").write("old dynamic")
+
+      Indexmap.configure do |config|
+        config.base_url = "https://example.com"
+        config.public_path = public_path
+        config.output :dynamic do |output|
+          output.format = :single_file
+          output.index_filename = "sitemap-dynamic.xml"
+          output.entries = [
+            Indexmap::Entry.new(loc: "https://example.com/dynamic?utm_source=test")
+          ]
+        end
+      end
+
+      error = assert_raises(Indexmap::ValidationError) { Indexmap.create(:dynamic) }
+
+      assert_match "Parameterized sitemap URLs detected", error.message
+      assert_equal "old dynamic", public_path.join("sitemap-dynamic.xml").read
+    end
+  end
+
+  def test_after_create_requires_a_block
+    error = assert_raises(ArgumentError) { Indexmap.configuration.after_create }
+
+    assert_equal "after_create requires a block", error.message
+  end
 end

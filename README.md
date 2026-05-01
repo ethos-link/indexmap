@@ -85,7 +85,10 @@ bin/rails indexmap:sitemap:format
 bin/rails indexmap:sitemap:validate
 ```
 
-`indexmap:sitemap:create` is the main task. It writes sitemap files, formats them, and validates the result.
+`indexmap:sitemap:create` is the main task. It writes sitemap files to a local
+temporary directory, formats them, validates the result, then replaces the final
+XML files. Existing sitemap files are left untouched if generation or validation
+fails.
 
 ### Default Index Mode
 
@@ -113,6 +116,85 @@ end
 ```
 
 In `:single_file` mode, `indexmap` writes a `urlset` directly to `sitemap.xml` and reads entries from `config.entries` instead of `config.sections`.
+
+### Named Outputs
+
+Most apps only need the default output. Use named outputs when one part of the
+sitemap must be generated separately, for example when static pages can be
+generated during deploy but database-heavy pages should refresh later. Named
+outputs still write normal sitemap XML files to a filesystem path; storage and
+serving are application concerns.
+
+```ruby
+Indexmap.configure do |config|
+  config.base_url = -> { "https://example.com" }
+  config.public_path = -> { Rails.root.join("storage/sitemaps") }
+  config.sections = -> { Sitemap.sections }
+
+  config.output :insights_data do |output|
+    output.format = :single_file
+    output.index_filename = "sitemap-insights-data.xml"
+    output.entries = -> { Sitemap.insights_data_entries }
+  end
+end
+```
+
+Generate the default output:
+
+```ruby
+Indexmap.create
+```
+
+Generate only the named output:
+
+```ruby
+Indexmap.create(:insights_data)
+```
+
+Named outputs inherit `base_url`, `public_path`, and `format` from the main
+configuration unless you override them.
+
+`Indexmap.create` uses the same safe local publish flow as the rake task:
+generate in a temporary directory, format, validate, and then replace the final
+XML file or files.
+
+### Deferred Dynamic Sections
+
+Use `after_create` when `indexmap:sitemap:create` should publish the default
+sitemap first, then schedule slower dynamic sections for the background. The
+callback runs only after the generated files have been formatted, validated, and
+replaced successfully.
+
+```ruby
+Indexmap.configure do |config|
+  config.base_url = -> { "https://example.com" }
+  config.public_path = -> { Rails.root.join("storage/sitemaps") }
+  config.sections = -> { Sitemap.sections }
+
+  config.output :insights_data do |output|
+    output.format = :single_file
+    output.index_filename = "sitemap-insights-data.xml"
+    output.entries = -> { Sitemap.insights_data_entries }
+  end
+
+  config.after_create do
+    Insights::SitemapRefreshJob.perform_later
+  end
+end
+```
+
+Then the job can stay small:
+
+```ruby
+class Insights::SitemapRefreshJob < ApplicationJob
+  def perform
+    Indexmap.create(:insights_data)
+  end
+end
+```
+
+This keeps deploys fast: the deploy only waits for `indexmap:sitemap:create`,
+while database-dependent output is refreshed by the job backend.
 
 ## Validation And Parsing
 

@@ -3,14 +3,15 @@
 require "cgi"
 require "date"
 require "fileutils"
-require "pathname"
 require "time"
 
 require_relative "indexmap/version"
 require_relative "indexmap/google_configuration"
 require_relative "indexmap/index_now_configuration"
 require_relative "indexmap/configuration"
+require_relative "indexmap/creator"
 require_relative "indexmap/entry"
+require_relative "indexmap/output"
 require_relative "indexmap/path"
 require_relative "indexmap/parser"
 require_relative "indexmap/pinger/base"
@@ -38,6 +39,10 @@ module Indexmap
 
     def reset!
       @configuration = Configuration.new
+    end
+
+    def create(output_name = :default, configuration: self.configuration)
+      Creator.new(output: configuration.output_for(output_name)).create
     end
   end
 end
