@@ -8,11 +8,11 @@ module Indexmap
   class Parser
     Entry = Struct.new(:loc, :lastmod, :source_sitemap, keyword_init: true)
 
-    def initialize(path: default_path, rebase_remote_children: false, index_filename: Indexmap.configuration.index_filename, public_path: Indexmap.configuration.public_path)
-      @source = path.to_s
+    def initialize(source: nil, rebase_remote_children: false, index_filename: Indexmap.configuration.index_filename, storage: Indexmap.configuration.storage)
+      @source = (source || index_filename).to_s
       @rebase_remote_children = rebase_remote_children
       @index_filename = index_filename
-      @public_path = public_path
+      @storage = storage
     end
 
     def entries(reset: false)
@@ -58,11 +58,7 @@ module Indexmap
 
     private
 
-    attr_reader :index_filename, :public_path
-
-    def default_path
-      Indexmap::Path.existing_public_path(public_path: public_path, index_filename: index_filename)
-    end
+    attr_reader :index_filename, :storage
 
     def parse_source(source, visited:)
       normalized_source = normalize_source(source)
@@ -105,12 +101,12 @@ module Indexmap
         end
       elsif remote_source?(loc)
         uri = URI.parse(loc)
-        File.join(File.dirname(parent_source), File.basename(uri.path))
+        File.basename(uri.path)
       else
-        File.expand_path(loc, File.dirname(parent_source))
+        File.basename(loc)
       end
     rescue URI::InvalidURIError
-      File.expand_path(loc, File.dirname(parent_source))
+      File.basename(loc)
     end
 
     def remote_child_source(parent_uri, loc)
@@ -130,7 +126,7 @@ module Indexmap
       if remote_source?(source)
         URI.parse(source).to_s
       else
-        Pathname(source).expand_path.to_s
+        File.basename(source)
       end
     rescue URI::InvalidURIError
       nil
@@ -146,8 +142,8 @@ module Indexmap
     def read_source(source)
       if remote_source?(source)
         fetch_remote_source(source)
-      elsif File.exist?(source)
-        File.read(source, encoding: "UTF-8")
+      elsif storage.exist?(source)
+        storage.read(source)
       end
     end
 

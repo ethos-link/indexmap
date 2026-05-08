@@ -42,16 +42,15 @@ module Indexmap
         summarize_results(results)
       end
 
-      def write_key_file(key: index_now_configuration.key, path: nil)
+      def write_key_file(key: index_now_configuration.key, filename: nil)
         key = normalized_configured_key(key)
         return if key.empty?
 
-        path ||= index_now_configuration.key_path(public_path: configuration.public_path, key: key)
-        return path if valid_key_file?(path)
+        filename ||= index_now_configuration.key_filename(key: key)
+        return filename if valid_key_file?(filename)
 
-        FileUtils.mkdir_p(path.dirname)
-        File.write(path, key)
-        path
+        storage.write(filename, key, content_type: "text/plain")
+        filename
       end
 
       def ensure_key_file
@@ -62,7 +61,7 @@ module Indexmap
         return existing_path if existing_path
 
         key = generated_key
-        write_key_file(key: key, path: configuration.public_path.join("#{key}.txt"))
+        write_key_file(key: key, filename: "#{key}.txt")
       end
 
       private
@@ -97,7 +96,7 @@ module Indexmap
 
       def current_entries
         sitemap_files.each_with_object({}) do |sitemap_file, entries|
-          Parser.new(path: sitemap_file).entries.each do |entry|
+          Parser.new(source: sitemap_file, storage: storage).entries.each do |entry|
             next if entry.loc.to_s.strip.empty?
 
             entries[entry.loc] = entry
@@ -179,36 +178,32 @@ module Indexmap
         configured_key = normalized_configured_key(index_now_configuration.key)
         return configured_key unless configured_key.empty?
 
-        existing_key_file&.read
+        storage.read(existing_key_file) if existing_key_file
       end
 
       def existing_key_file
-        configured_path = index_now_configuration.key_path(public_path: configuration.public_path)
-        return configured_path if valid_key_file?(configured_path)
+        configured_filename = index_now_configuration.key_filename
+        return configured_filename if valid_key_file?(configured_filename)
 
-        configuration.public_path.glob("*.txt").sort.find { |file| valid_key_file?(file) }
+        storage.list(suffix: ".txt").find { |filename| valid_key_file?(filename) }
       end
 
       def key_location(api_key:)
-        path = index_now_configuration.key_path(public_path: configuration.public_path, key: api_key) || existing_key_file
-        return unless path
+        filename = index_now_configuration.key_filename(key: api_key) || existing_key_file
+        return unless filename
 
-        public_path = configuration.public_path.expand_path
-        key_path = path.expand_path
-        relative_path = key_path.relative_path_from(public_path)
-
-        URI.join("#{host}/", relative_path.to_s).to_s
+        storage.public_url(filename)
       rescue ArgumentError
         nil
       end
 
-      def valid_key_file?(path)
-        return false unless path&.file?
+      def valid_key_file?(filename)
+        return false unless filename && storage.exist?(filename)
 
-        filename = path.basename(".txt").to_s
-        return false unless filename.match?(KEY_FORMAT)
+        key = File.basename(filename, ".txt").to_s
+        return false unless key.match?(KEY_FORMAT)
 
-        path.read == filename
+        storage.read(filename) == key
       end
 
       def generated_key

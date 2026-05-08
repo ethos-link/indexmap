@@ -46,8 +46,12 @@ module Indexmap
         hostname.sub(/\Awww\./, "")
       end
 
+      def storage
+        configuration.storage
+      end
+
       def sitemap_files
-        Dir.glob(configuration.public_path.join("sitemap*.xml")).sort
+        storage.list(prefix: "sitemap", suffix: ".xml")
       end
 
       def ping_sitemap(_sitemap_file)

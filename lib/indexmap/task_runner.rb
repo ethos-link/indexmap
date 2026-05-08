@@ -10,15 +10,15 @@ module Indexmap
 
     def create
       written_files = Indexmap.create(configuration: configuration)
-      index_now_key_path = write_index_now_key if configuration.index_now.write_key_file?
+      index_now_key_filename = write_index_now_key if configuration.index_now.write_key_file?
       configuration.run_after_create_callbacks
 
-      {files: written_files.map(&:to_s), written_files: written_files, index_now_key_path: index_now_key_path}
+      {files: written_files.map(&:to_s), written_files: written_files, index_now_key_filename: index_now_key_filename}
     end
 
     def format
-      sitemap_files.each do |file_path|
-        content = File.read(file_path)
+      sitemap_files.each do |filename|
+        content = storage.read(filename)
         document = Nokogiri::XML(
           content,
           nil,
@@ -27,7 +27,7 @@ module Indexmap
         )
         save_options = Nokogiri::XML::Node::SaveOptions::FORMAT | Nokogiri::XML::Node::SaveOptions::AS_XML
 
-        File.write(file_path, document.to_xml(indent: 2, save_with: save_options))
+        storage.write(filename, document.to_xml(indent: 2, save_with: save_options))
       end
 
       sitemap_files
@@ -45,8 +45,8 @@ module Indexmap
       pinger.write_key_file
     end
 
-    def public_path
-      default_output.public_path
+    def storage
+      configuration.storage
     end
 
     private
@@ -58,7 +58,7 @@ module Indexmap
     end
 
     def sitemap_files
-      Dir.glob(public_path.join("sitemap*.xml")).sort
+      storage.list(prefix: "sitemap", suffix: ".xml")
     end
   end
 end

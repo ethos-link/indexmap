@@ -4,7 +4,7 @@ module Indexmap
   class Output
     VALID_FORMATS = %i[index single_file].freeze
 
-    attr_writer :base_url, :entries, :format, :index_filename, :public_path, :sections
+    attr_writer :base_url, :entries, :format, :index_filename, :sections
 
     def initialize(configuration:)
       @configuration = configuration
@@ -29,9 +29,8 @@ module Indexmap
       resolve(@index_filename) || configuration.index_filename
     end
 
-    def public_path
-      value = resolve(@public_path) || configuration.public_path
-      Pathname(value)
+    def storage
+      configuration.storage
     end
 
     def sections
@@ -57,7 +56,6 @@ module Indexmap
         entries: entries,
         format: format,
         sections: sections,
-        public_path: public_path,
         base_url: base_url,
         index_filename: index_filename
       )

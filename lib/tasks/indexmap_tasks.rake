@@ -5,8 +5,8 @@ namespace :indexmap do
       runner = Indexmap::TaskRunner.new
       create_result = runner.create
 
-      puts "Created, formatted, and validated #{file_count(create_result[:files])} in #{public_directory(runner)}."
-      puts "IndexNow key file: #{create_result[:index_now_key_path]}" if create_result[:index_now_key_path]
+      puts "Created, formatted, and validated #{file_count(create_result[:files])} in #{storage_description(runner)}."
+      puts "IndexNow key file: #{create_result[:index_now_key_filename]}" if create_result[:index_now_key_filename]
     end
 
     desc "Format sitemap files for better readability"
@@ -14,7 +14,7 @@ namespace :indexmap do
       runner = Indexmap::TaskRunner.new
       formatted_files = runner.format
 
-      puts "Formatted #{file_count(formatted_files)} in #{public_directory(runner)}."
+      puts "Formatted #{file_count(formatted_files)} in #{storage_description(runner)}."
     end
 
     desc "Validate sitemap shape and URL hygiene"
@@ -87,8 +87,8 @@ namespace :indexmap do
     "#{count} sitemap #{(count == 1) ? "file" : "files"}"
   end
 
-  def public_directory(runner)
-    runner.public_path
+  def storage_description(runner)
+    runner.storage
   end
 
   def format_google_ping_failure(failure)
