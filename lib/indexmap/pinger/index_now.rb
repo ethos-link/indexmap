@@ -76,7 +76,7 @@ module Indexmap
         files = super
         return files if files.one?
 
-        child_files = files.reject { |file| File.basename(file) == configuration.index_filename }
+        child_files = files.reject { |file| file == configuration.index_filename }
         child_files.empty? ? files : child_files
       end
 

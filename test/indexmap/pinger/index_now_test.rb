@@ -92,6 +92,36 @@ class IndexmapPingerIndexNowTest < Minitest::Test
     assert_equal 1, result[:batch_count]
   end
 
+  def test_pings_sitemap_urls_from_directory_storage_keys
+    storage = Indexmap::Storage::Memory.new(public_url: "https://www.example.com")
+    storage.write("sitemaps/sitemap.xml", <<~XML)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <sitemap><loc>https://www.example.com/sitemaps/sitemap-marketing.xml</loc></sitemap>
+      </sitemapindex>
+    XML
+    storage.write("sitemaps/sitemap-marketing.xml", <<~XML)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <url><loc>https://www.example.com/pages/features</loc></url>
+      </urlset>
+    XML
+    configuration = configuration_with(storage: storage, index_filename: "sitemaps/sitemap.xml")
+    configuration.index_now.key = VALID_KEY
+
+    indexnow_url = "https://api.indexnow.org/indexnow"
+    stub_request(:post, indexnow_url).to_return(status: 200, body: "", headers: {})
+
+    result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+
+    assert_requested(:post, indexnow_url, times: 1) do |request|
+      payload = JSON.parse(request.body)
+      assert_equal ["https://www.example.com/pages/features"], payload.fetch("urlList")
+    end
+    assert_equal :submitted, result[:status]
+    assert_equal 1, result[:url_count]
+  end
+
   def test_pings_only_sitemap_urls_newer_than_since
     configuration = configuration_with(storage: sitemap_storage)
     configuration.index_now.key = VALID_KEY
@@ -182,9 +212,10 @@ class IndexmapPingerIndexNowTest < Minitest::Test
     end
   end
 
-  def configuration_with(storage: Indexmap::Storage::Memory.new(public_url: "https://www.example.com"))
+  def configuration_with(storage: Indexmap::Storage::Memory.new(public_url: "https://www.example.com"), index_filename: "sitemap.xml")
     Indexmap::Configuration.new.tap do |configuration|
       configuration.base_url = "https://www.example.com"
+      configuration.index_filename = index_filename
       configuration.storage = storage
     end
   end

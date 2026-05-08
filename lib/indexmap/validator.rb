@@ -74,18 +74,30 @@ module Indexmap
       end
 
       child_locations.each do |location|
-        child_filename = local_child_filename(location)
+        child_filename = local_child_filename(location, parent_filename: sitemap_filename)
         raise ValidationError, "Missing child sitemap file: #{child_filename}" unless storage.exist?(child_filename)
 
         validate_sitemap_file!(child_filename)
       end
     end
 
-    def local_child_filename(location)
+    def local_child_filename(location, parent_filename:)
       uri = URI.parse(location)
-      (uri.absolute? || location.start_with?("/")) ? File.basename(uri.path) : File.basename(location)
+      if uri.absolute? || location.start_with?("/")
+        normalize_local_filename(uri.path)
+      else
+        parent_directory = File.dirname(parent_filename)
+        normalize_local_filename((parent_directory == ".") ? location : File.join(parent_directory, location))
+      end
     rescue URI::InvalidURIError
-      File.basename(location)
+      normalize_local_filename(location)
+    end
+
+    def normalize_local_filename(filename)
+      normalized = Pathname(filename.to_s).cleanpath.to_s.sub(%r{\A/+}, "")
+      return if normalized.empty? || normalized == ".." || normalized.start_with?("../")
+
+      normalized
     end
 
     def validate_presence!(entries)

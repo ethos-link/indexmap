@@ -27,7 +27,7 @@ module Indexmap
         )
         save_options = Nokogiri::XML::Node::SaveOptions::FORMAT | Nokogiri::XML::Node::SaveOptions::AS_XML
 
-        storage.write(filename, document.to_xml(indent: 2, save_with: save_options))
+        storage.write(filename, document.to_xml(indent: 2, save_with: save_options), content_type: "application/xml")
       end
 
       sitemap_files

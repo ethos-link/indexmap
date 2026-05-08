@@ -34,6 +34,10 @@ Or install it directly:
 gem install indexmap
 ```
 
+Upgrading an existing app? Read [UPGRADE.md](UPGRADE.md) before deploying,
+especially if the app uses custom storage or stores sitemap files under a
+directory prefix such as `sitemaps/`.
+
 ## Ruby Usage
 
 ```ruby

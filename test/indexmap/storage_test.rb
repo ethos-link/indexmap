@@ -81,12 +81,16 @@ class IndexmapStorageTest < Minitest::Test
       storage = Indexmap::Storage::Filesystem.new(path: dir, public_url: "https://example.com")
 
       storage.write("sitemap.xml", "<xml/>")
+      storage.write("sitemaps/sitemap-pages.xml", "<xml/>")
       storage.write("robots.txt", "robots", content_type: "text/plain")
 
       assert storage.exist?("sitemap.xml")
+      assert storage.exist?("sitemaps/sitemap-pages.xml")
       assert_equal "<xml/>", storage.read("sitemap.xml")
-      assert_equal ["sitemap.xml"], storage.list(prefix: "sitemap", suffix: ".xml")
+      assert_equal "<xml/>", storage.read("sitemaps/sitemap-pages.xml")
+      assert_equal ["sitemap.xml", "sitemaps/sitemap-pages.xml"], storage.list(prefix: "sitemap", suffix: ".xml")
       assert_equal "https://example.com/sitemap.xml", storage.public_url("sitemap.xml")
+      assert_equal "https://example.com/sitemaps/sitemap-pages.xml", storage.public_url("sitemaps/sitemap-pages.xml")
     end
   end
 

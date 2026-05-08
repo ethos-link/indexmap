@@ -101,12 +101,21 @@ module Indexmap
         end
       elsif remote_source?(loc)
         uri = URI.parse(loc)
-        File.basename(uri.path)
+        normalize_local_source(uri.path)
       else
-        File.basename(loc)
+        resolve_local_child_sitemap(parent_source, loc)
       end
     rescue URI::InvalidURIError
-      File.basename(loc)
+      resolve_local_child_sitemap(parent_source, loc)
+    end
+
+    def resolve_local_child_sitemap(parent_source, loc)
+      if loc.start_with?("/")
+        normalize_local_source(loc)
+      else
+        parent_directory = File.dirname(parent_source)
+        normalize_local_source((parent_directory == ".") ? loc : File.join(parent_directory, loc))
+      end
     end
 
     def remote_child_source(parent_uri, loc)
@@ -126,10 +135,17 @@ module Indexmap
       if remote_source?(source)
         URI.parse(source).to_s
       else
-        File.basename(source)
+        normalize_local_source(source)
       end
     rescue URI::InvalidURIError
       nil
+    end
+
+    def normalize_local_source(source)
+      normalized = Pathname(source.to_s).cleanpath.to_s.sub(%r{\A/+}, "")
+      return if normalized.empty? || normalized == ".." || normalized.start_with?("../")
+
+      normalized
     end
 
     def remote_source?(value)

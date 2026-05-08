@@ -118,6 +118,46 @@ class IndexmapValidatorTest < Minitest::Test
     assert_equal "Missing child sitemap file: sitemap-pages.xml", error.message
   end
 
+  def test_validate_preserves_directory_keys_for_child_sitemap_files
+    storage = Indexmap::Storage::Memory.new
+    storage.write("sitemaps/sitemap.xml", <<~XML)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <sitemap><loc>https://example.com/sitemaps/sitemap-pages.xml</loc></sitemap>
+      </sitemapindex>
+    XML
+    storage.write("sitemaps/sitemap-pages.xml", <<~XML)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <url><loc>https://example.com/about</loc></url>
+      </urlset>
+    XML
+
+    assert Indexmap::Validator.new(
+      configuration: configuration_with(storage: storage, index_filename: "sitemaps/sitemap.xml")
+    ).validate!
+  end
+
+  def test_validate_resolves_relative_child_sitemaps_from_parent_directory
+    storage = Indexmap::Storage::Memory.new
+    storage.write("sitemaps/sitemap.xml", <<~XML)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <sitemap><loc>sitemap-pages.xml</loc></sitemap>
+      </sitemapindex>
+    XML
+    storage.write("sitemaps/sitemap-pages.xml", <<~XML)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <url><loc>https://example.com/about</loc></url>
+      </urlset>
+    XML
+
+    assert Indexmap::Validator.new(
+      configuration: configuration_with(storage: storage, index_filename: "sitemaps/sitemap.xml")
+    ).validate!
+  end
+
   def test_validate_passes_for_valid_sitemap
     assert validate_sitemap(<<~XML)
       <?xml version="1.0" encoding="UTF-8"?>
@@ -136,9 +176,10 @@ class IndexmapValidatorTest < Minitest::Test
     Indexmap::Validator.new(configuration: configuration_with(storage: storage)).validate!
   end
 
-  def configuration_with(storage: Indexmap::Storage::Memory.new)
+  def configuration_with(storage: Indexmap::Storage::Memory.new, index_filename: "sitemap.xml")
     Indexmap::Configuration.new.tap do |configuration|
       configuration.base_url = "https://example.com"
+      configuration.index_filename = index_filename
       configuration.storage = storage
     end
   end

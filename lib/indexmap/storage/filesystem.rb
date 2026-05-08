@@ -33,8 +33,8 @@ module Indexmap
       end
 
       def list(prefix: nil, suffix: nil)
-        path.glob("*").select(&:file?).filter_map do |file|
-          filename = file.basename.to_s
+        path.glob("**/*").select(&:file?).filter_map do |file|
+          filename = file.relative_path_from(path).to_s
           next if prefix && !filename.start_with?(prefix)
           next if suffix && !filename.end_with?(suffix)
 
