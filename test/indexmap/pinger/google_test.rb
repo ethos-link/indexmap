@@ -28,167 +28,145 @@ class IndexmapPingerGoogleTest < Minitest::Test
   end
 
   def test_pings_google_for_each_sitemap_file
-    Dir.mktmpdir do |dir|
-      public_path = Pathname(dir)
-      public_path.join("sitemap.xml").write("<sitemapindex/>")
+    configuration = configuration_with(storage: storage_with("sitemap.xml" => "<sitemapindex/>"))
+    configuration.google.credentials = "{\"type\":\"service_account\"}"
 
-      configuration = Indexmap::Configuration.new
-      configuration.base_url = "https://www.example.com"
-      configuration.public_path = public_path
-      configuration.google.credentials = "{\"type\":\"service_account\"}"
-
-      service = FakeWebmastersService.new(site_urls: ["sc-domain:example.com"])
-      builder_calls = []
-      credentials_builder = lambda do |credentials:, scope:|
-        builder_calls << [credentials, scope]
-        :fake_authorizer
-      end
-
-      result = Indexmap::Pinger::Google.new(
-        configuration: configuration,
-        service: service,
-        credentials_builder: credentials_builder
-      ).ping
-
-      assert_equal [["{\"type\":\"service_account\"}", "https://www.googleapis.com/auth/webmasters"]], builder_calls
-      assert_equal :fake_authorizer, service.authorization
-      assert_equal ["sc-domain:example.com", "https://www.example.com/sitemap.xml"], service.submitted
-      assert_equal :submitted, result[:status]
-      assert_equal 1, result[:sitemap_count]
-      assert_equal 0, result[:url_count]
-      assert_equal 1, service.list_sites_calls
+    service = FakeWebmastersService.new(site_urls: ["sc-domain:example.com"])
+    builder_calls = []
+    credentials_builder = lambda do |credentials:, scope:|
+      builder_calls << [credentials, scope]
+      :fake_authorizer
     end
+
+    result = Indexmap::Pinger::Google.new(
+      configuration: configuration,
+      service: service,
+      credentials_builder: credentials_builder
+    ).ping
+
+    assert_equal [["{\"type\":\"service_account\"}", "https://www.googleapis.com/auth/webmasters"]], builder_calls
+    assert_equal :fake_authorizer, service.authorization
+    assert_equal ["sc-domain:example.com", "https://www.example.com/sitemap.xml"], service.submitted
+    assert_equal :submitted, result[:status]
+    assert_equal 1, result[:sitemap_count]
+    assert_equal 0, result[:url_count]
+    assert_equal 1, service.list_sites_calls
   end
 
   def test_reports_unique_url_count_from_submitted_sitemaps
-    Dir.mktmpdir do |dir|
-      public_path = Pathname(dir)
-      public_path.join("sitemap.xml").write(<<~XML)
+    storage = storage_with(
+      "sitemap.xml" => <<~XML,
         <?xml version="1.0" encoding="UTF-8"?>
         <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
           <sitemap><loc>https://www.example.com/sitemap-pages.xml</loc></sitemap>
           <sitemap><loc>https://www.example.com/sitemap-posts.xml</loc></sitemap>
         </sitemapindex>
       XML
-      public_path.join("sitemap-pages.xml").write(<<~XML)
+      "sitemap-pages.xml" => <<~XML,
         <?xml version="1.0" encoding="UTF-8"?>
         <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
           <url><loc>https://www.example.com/</loc></url>
           <url><loc>https://www.example.com/about</loc></url>
         </urlset>
       XML
-      public_path.join("sitemap-posts.xml").write(<<~XML)
+      "sitemap-posts.xml" => <<~XML
         <?xml version="1.0" encoding="UTF-8"?>
         <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
           <url><loc>https://www.example.com/about</loc></url>
           <url><loc>https://www.example.com/blog</loc></url>
         </urlset>
       XML
+    )
+    configuration = configuration_with(storage: storage)
+    configuration.google.credentials = "{\"type\":\"service_account\"}"
 
-      configuration = Indexmap::Configuration.new
-      configuration.base_url = "https://www.example.com"
-      configuration.public_path = public_path
-      configuration.google.credentials = "{\"type\":\"service_account\"}"
+    service = FakeWebmastersService.new(site_urls: ["sc-domain:example.com"])
+    result = Indexmap::Pinger::Google.new(
+      configuration: configuration,
+      service: service,
+      credentials_builder: ->(**) { :fake_authorizer }
+    ).ping
 
-      service = FakeWebmastersService.new(site_urls: ["sc-domain:example.com"])
-      result = Indexmap::Pinger::Google.new(
-        configuration: configuration,
-        service: service,
-        credentials_builder: ->(**) { :fake_authorizer }
-      ).ping
-
-      assert_equal :submitted, result[:status]
-      assert_equal 3, result[:sitemap_count]
-      assert_equal 3, result[:url_count]
-      assert_equal [
-        ["sc-domain:example.com", "https://www.example.com/sitemap-pages.xml"],
-        ["sc-domain:example.com", "https://www.example.com/sitemap-posts.xml"],
-        ["sc-domain:example.com", "https://www.example.com/sitemap.xml"]
-      ], service.submissions
-    end
+    assert_equal :submitted, result[:status]
+    assert_equal 3, result[:sitemap_count]
+    assert_equal 3, result[:url_count]
+    assert_equal [
+      ["sc-domain:example.com", "https://www.example.com/sitemap-pages.xml"],
+      ["sc-domain:example.com", "https://www.example.com/sitemap-posts.xml"],
+      ["sc-domain:example.com", "https://www.example.com/sitemap.xml"]
+    ], service.submissions
   end
 
   def test_skips_google_ping_when_credentials_are_missing
-    Dir.mktmpdir do |dir|
-      public_path = Pathname(dir)
-      public_path.join("sitemap.xml").write("<sitemapindex/>")
+    configuration = configuration_with(storage: storage_with("sitemap.xml" => "<sitemapindex/>"))
+    service = FakeWebmastersService.new(site_urls: ["sc-domain:example.com"])
 
-      configuration = Indexmap::Configuration.new
-      configuration.base_url = "https://www.example.com"
-      configuration.public_path = public_path
+    result = Indexmap::Pinger::Google.new(configuration: configuration, service: service).ping
 
-      service = FakeWebmastersService.new(site_urls: ["sc-domain:example.com"])
-
-      result = Indexmap::Pinger::Google.new(configuration: configuration, service: service).ping
-
-      assert_nil service.submitted
-      assert_equal({status: :skipped, reason: :missing_credentials}, result)
-    end
+    assert_nil service.submitted
+    assert_equal({status: :skipped, reason: :missing_credentials}, result)
   end
 
   def test_reports_missing_sitemap_files
-    Dir.mktmpdir do |dir|
-      configuration = Indexmap::Configuration.new
-      configuration.base_url = "https://www.example.com"
-      configuration.public_path = Pathname(dir)
-      configuration.google.credentials = "{\"type\":\"service_account\"}"
+    configuration = configuration_with
+    configuration.google.credentials = "{\"type\":\"service_account\"}"
 
-      service = FakeWebmastersService.new(site_urls: ["sc-domain:example.com"])
-      result = Indexmap::Pinger::Google.new(
-        configuration: configuration,
-        service: service,
-        credentials_builder: ->(**) { :fake_authorizer }
-      ).ping
+    service = FakeWebmastersService.new(site_urls: ["sc-domain:example.com"])
+    result = Indexmap::Pinger::Google.new(
+      configuration: configuration,
+      service: service,
+      credentials_builder: ->(**) { :fake_authorizer }
+    ).ping
 
-      assert_equal({status: :skipped, reason: :no_sitemaps}, result)
-      assert_nil service.submitted
-    end
+    assert_equal({status: :skipped, reason: :no_sitemaps}, result)
+    assert_nil service.submitted
   end
 
   def test_reports_google_authorization_failure
-    Dir.mktmpdir do |dir|
-      public_path = Pathname(dir)
-      public_path.join("sitemap.xml").write("<sitemapindex/>")
+    configuration = configuration_with(storage: storage_with("sitemap.xml" => "<sitemapindex/>"))
+    configuration.google.credentials = "{\"type\":\"service_account\"}"
 
-      configuration = Indexmap::Configuration.new
-      configuration.base_url = "https://www.example.com"
-      configuration.public_path = public_path
-      configuration.google.credentials = "{\"type\":\"service_account\"}"
+    service = FakeWebmastersService.new(site_urls: ["sc-domain:not-example.org"])
+    result = Indexmap::Pinger::Google.new(
+      configuration: configuration,
+      service: service,
+      credentials_builder: ->(**) { :fake_authorizer }
+    ).ping
 
-      service = FakeWebmastersService.new(site_urls: ["sc-domain:not-example.org"])
-      result = Indexmap::Pinger::Google.new(
-        configuration: configuration,
-        service: service,
-        credentials_builder: ->(**) { :fake_authorizer }
-      ).ping
-
-      assert_equal :failed, result[:status]
-      assert_equal 1, result[:failures].count
-      assert_equal :unauthorized, result[:failures].first[:reason]
-      assert_nil service.submitted
-    end
+    assert_equal :failed, result[:status]
+    assert_equal 1, result[:failures].count
+    assert_equal :unauthorized, result[:failures].first[:reason]
+    assert_nil service.submitted
   end
 
   def test_google_authorization_requires_exact_property_match
-    Dir.mktmpdir do |dir|
-      public_path = Pathname(dir)
-      public_path.join("sitemap.xml").write("<sitemapindex/>")
+    configuration = configuration_with(storage: storage_with("sitemap.xml" => "<sitemapindex/>"))
+    configuration.google.credentials = "{\"type\":\"service_account\"}"
 
-      configuration = Indexmap::Configuration.new
+    service = FakeWebmastersService.new(site_urls: ["sc-domain:myexample.com"])
+    result = Indexmap::Pinger::Google.new(
+      configuration: configuration,
+      service: service,
+      credentials_builder: ->(**) { :fake_authorizer }
+    ).ping
+
+    assert_equal :failed, result[:status]
+    assert_equal :unauthorized, result[:failures].first[:reason]
+    assert_nil service.submitted
+  end
+
+  private
+
+  def configuration_with(storage: Indexmap::Storage::Memory.new(public_url: "https://www.example.com"))
+    Indexmap::Configuration.new.tap do |configuration|
       configuration.base_url = "https://www.example.com"
-      configuration.public_path = public_path
-      configuration.google.credentials = "{\"type\":\"service_account\"}"
+      configuration.storage = storage
+    end
+  end
 
-      service = FakeWebmastersService.new(site_urls: ["sc-domain:myexample.com"])
-      result = Indexmap::Pinger::Google.new(
-        configuration: configuration,
-        service: service,
-        credentials_builder: ->(**) { :fake_authorizer }
-      ).ping
-
-      assert_equal :failed, result[:status]
-      assert_equal :unauthorized, result[:failures].first[:reason]
-      assert_nil service.submitted
+  def storage_with(files)
+    Indexmap::Storage::Memory.new(public_url: "https://www.example.com").tap do |storage|
+      files.each { |filename, body| storage.write(filename, body) }
     end
   end
 end

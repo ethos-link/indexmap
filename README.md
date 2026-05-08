@@ -34,6 +34,10 @@ Or install it directly:
 gem install indexmap
 ```
 
+Upgrading an existing app? Read [UPGRADE.md](UPGRADE.md) before deploying,
+especially if the app uses custom storage or stores sitemap files under a
+directory prefix such as `sitemaps/`.
+
 ## Ruby Usage
 
 ```ruby
@@ -51,7 +55,6 @@ sections = [
 
 Indexmap::Writer.new(
   sections: sections,
-  public_path: Pathname("public"),
   base_url: "https://example.com"
 ).write
 ```
@@ -63,7 +66,12 @@ In an initializer:
 ```ruby
 Indexmap.configure do |config|
   config.base_url = -> { "https://example.com" }
-  config.public_path = -> { Rails.public_path }
+  config.storage = -> do
+    Indexmap::Storage::Filesystem.new(
+      path: Rails.public_path,
+      public_url: config.base_url
+    )
+  end
   config.sections = -> do
     [
       Indexmap::Section.new(
@@ -85,26 +93,26 @@ bin/rails indexmap:sitemap:format
 bin/rails indexmap:sitemap:validate
 ```
 
-`indexmap:sitemap:create` is the main task. It writes sitemap files to a local
-temporary directory, formats them, validates the result, then replaces the final
-XML files. Existing sitemap files are left untouched if generation or validation
-fails.
+`indexmap:sitemap:create` is the main task. It builds sitemap files in memory,
+formats them, validates the result, then writes the final XML files to the
+configured storage. Existing sitemap files are left untouched if generation or
+validation fails.
 
 ### Default Index Mode
 
 This is the default behavior. `indexmap` writes:
 
-- `public/sitemap.xml` as a sitemap index
+- `sitemap.xml` as a sitemap index
 - one or more child sitemap files from `config.sections`
 
 ### Single-File Mode
 
-For sites that only want one `public/sitemap.xml` file:
+For sites that only want one `sitemap.xml` file:
 
 ```ruby
 Indexmap.configure do |config|
   config.base_url = -> { "https://example.com" }
-  config.public_path = -> { Rails.public_path }
+  config.storage = -> { Indexmap::Storage::Filesystem.new(path: Rails.public_path, public_url: config.base_url) }
   config.format = :single_file
   config.entries = -> do
     [
@@ -122,13 +130,12 @@ In `:single_file` mode, `indexmap` writes a `urlset` directly to `sitemap.xml` a
 Most apps only need the default output. Use named outputs when one part of the
 sitemap must be generated separately, for example when static pages can be
 generated during deploy but database-heavy pages should refresh later. Named
-outputs still write normal sitemap XML files to a filesystem path; storage and
-serving are application concerns.
+outputs write through the same configured storage as the default output.
 
 ```ruby
 Indexmap.configure do |config|
   config.base_url = -> { "https://example.com" }
-  config.public_path = -> { Rails.root.join("storage/sitemaps") }
+  config.storage = -> { Indexmap::Storage::Filesystem.new(path: Rails.root.join("storage/sitemaps"), public_url: config.base_url) }
   config.sections = -> { Sitemap.sections }
 
   config.output :insights_data do |output|
@@ -151,12 +158,57 @@ Generate only the named output:
 Indexmap.create(:insights_data)
 ```
 
-Named outputs inherit `base_url`, `public_path`, and `format` from the main
-configuration unless you override them.
+Named outputs inherit `base_url` and `format` from the main configuration unless
+you override them. Storage is configured once and shared by every output.
 
-`Indexmap.create` uses the same safe local publish flow as the rake task:
-generate in a temporary directory, format, validate, and then replace the final
-XML file or files.
+`Indexmap.create` uses the same safe publish flow as the rake task: build,
+format, validate, and then write the final XML file or files to storage.
+
+### Storage
+
+Every `indexmap` operation reads and writes through `config.storage`. The storage
+object is the source of truth for generation, validation, parsing, Google
+submission, IndexNow submission, and IndexNow verification files.
+
+The filesystem adapter stores files in a directory and exposes public URLs from
+the same filenames:
+
+```ruby
+Indexmap.configure do |config|
+  config.base_url = "https://example.com"
+  config.storage = Indexmap::Storage::Filesystem.new(
+    path: Rails.public_path,
+    public_url: "https://example.com"
+  )
+end
+```
+
+Rails apps that store sitemap files in Active Storage can use the optional
+adapter. `indexmap` does not depend on `activestorage`; this adapter only uses
+the model and attachment object you pass in.
+
+```ruby
+Indexmap.configure do |config|
+  config.base_url = "https://example.com"
+  config.storage = Indexmap::Storage::ActiveStorage.new(
+    model: SitemapArtifact,
+    filename_column: :filename,
+    attachment: :file,
+    public_url: "https://example.com"
+  )
+end
+```
+
+Custom storage backends can implement the same small interface:
+
+```ruby
+storage.write(filename, body, content_type:)
+storage.read(filename)
+storage.exist?(filename)
+storage.list(prefix:, suffix:)
+storage.delete(filename)
+storage.public_url(filename)
+```
 
 ### Deferred Dynamic Sections
 
@@ -168,7 +220,7 @@ replaced successfully.
 ```ruby
 Indexmap.configure do |config|
   config.base_url = -> { "https://example.com" }
-  config.public_path = -> { Rails.root.join("storage/sitemaps") }
+  config.storage = -> { Indexmap::Storage::Filesystem.new(path: Rails.root.join("storage/sitemaps"), public_url: config.base_url) }
   config.sections = -> { Sitemap.sections }
 
   config.output :insights_data do |output|
@@ -201,7 +253,7 @@ while database-dependent output is refreshed by the job backend.
 `indexmap` also includes small utilities for working with generated sitemap files:
 
 ```ruby
-parser = Indexmap::Parser.new(path: Rails.public_path.join("sitemap.xml"))
+parser = Indexmap::Parser.new(source: "sitemap.xml")
 parser.paths
 # => ["/", "/about", "/articles/example"]
 
@@ -263,7 +315,7 @@ If `config.google.property` is not set, `indexmap` defaults to `sc-domain:<host>
 IndexNow submission requires a key. `indexmap` supports two ways to provide it:
 
 - set `config.index_now.key`
-- or keep a valid verification file at `public/<key>.txt`
+- or keep a valid verification file in the configured storage as `<key>.txt`
 
 Configured-key example:
 
@@ -273,14 +325,14 @@ Indexmap.configure do |config|
 end
 ```
 
-If `config.index_now.key` is set, `indexmap:sitemap:create` also ensures the matching `public/<key>.txt` verification file exists. It leaves an existing valid key file unchanged.
+If `config.index_now.key` is set, `indexmap:sitemap:create` also ensures the matching `<key>.txt` verification file exists in storage. It leaves an existing valid key file unchanged.
 
-If your sitemap XML is generated in a staging directory but the IndexNow key is served from a different public path, configure the key path explicitly:
+If you need a non-standard verification filename, configure it explicitly:
 
 ```ruby
 Indexmap.configure do |config|
   config.index_now.key = -> { ENV["INDEXNOW_KEY"] }
-  config.index_now.key_path = -> { Rails.public_path.join("#{ENV.fetch("INDEXNOW_KEY")}.txt") }
+  config.index_now.key_filename = -> { "#{ENV.fetch("INDEXNOW_KEY")}.txt" }
 end
 ```
 
@@ -302,7 +354,7 @@ bin/rails indexmap:index_now:write_key
 That task:
 
 - reuses an existing valid key file when present
-- otherwise generates a new key in `public/<key>.txt`
+- otherwise generates a new key in `<key>.txt`
 - makes that key available to `indexmap:index_now:ping` without adding `config.index_now.key`
 
 If neither a configured key nor a valid key file is present, `indexmap:index_now:ping` skips IndexNow submission.

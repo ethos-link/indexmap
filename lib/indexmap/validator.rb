@@ -7,20 +7,17 @@ require "uri"
 
 module Indexmap
   class Validator
-    def initialize(configuration: Indexmap.configuration, path: nil)
+    def initialize(configuration: Indexmap.configuration, filename: nil)
       @configuration = configuration
-      @path = path
+      @filename = filename
     end
 
     def validate!
-      sitemap_path = path || Indexmap::Path.existing_public_path(
-        public_path: configuration.public_path,
-        index_filename: configuration.index_filename
-      )
-      raise ValidationError, "Missing sitemap file: #{sitemap_path}" unless File.exist?(sitemap_path)
+      sitemap_filename = filename || configuration.index_filename
+      raise ValidationError, "Missing sitemap file: #{sitemap_filename}" unless storage.exist?(sitemap_filename)
 
-      validate_sitemap_file!(sitemap_path)
-      entries = Parser.new(path: sitemap_path).entries
+      validate_sitemap_file!(sitemap_filename)
+      entries = Parser.new(source: sitemap_filename, storage: storage, index_filename: configuration.index_filename).entries
       validate_presence!(entries)
       validate_duplicates!(entries)
       validate_parameterized_urls!(entries)
@@ -33,39 +30,43 @@ module Indexmap
 
     private
 
-    attr_reader :configuration, :path
+    attr_reader :configuration, :filename
 
-    def validate_sitemap_file!(sitemap_path)
-      document = read_xml_document(sitemap_path)
+    def storage
+      configuration.storage
+    end
+
+    def validate_sitemap_file!(sitemap_filename)
+      document = read_xml_document(sitemap_filename)
       root_name = document.root&.name
 
       case root_name
       when "urlset"
-        validate_urlset_document!(document, sitemap_path)
+        validate_urlset_document!(document, sitemap_filename)
       when "sitemapindex"
-        validate_sitemap_index_document!(document, sitemap_path)
+        validate_sitemap_index_document!(document, sitemap_filename)
       else
-        raise ValidationError, "Invalid sitemap root element in #{sitemap_path}: #{root_name || "none"}"
+        raise ValidationError, "Invalid sitemap root element in #{sitemap_filename}: #{root_name || "none"}"
       end
     end
 
-    def read_xml_document(file_path)
-      document = Nokogiri::XML(File.read(file_path, encoding: "UTF-8")) { |config| config.strict }
+    def read_xml_document(filename)
+      document = Nokogiri::XML(storage.read(filename)) { |config| config.strict }
       document.remove_namespaces!
       document
     rescue Nokogiri::XML::SyntaxError => error
-      raise ValidationError, "Invalid sitemap XML in #{file_path}: #{error.message.lines.first.strip}"
+      raise ValidationError, "Invalid sitemap XML in #{filename}: #{error.message.lines.first.strip}"
     end
 
-    def validate_urlset_document!(document, sitemap_path)
+    def validate_urlset_document!(document, sitemap_filename)
       return if document.xpath("/urlset/url/loc").any?
 
-      raise ValidationError, "Sitemap has no URLs: #{sitemap_path}"
+      raise ValidationError, "Sitemap has no URLs: #{sitemap_filename}"
     end
 
-    def validate_sitemap_index_document!(document, sitemap_path)
+    def validate_sitemap_index_document!(document, sitemap_filename)
       child_locations = document.xpath("/sitemapindex/sitemap/loc").map { |node| node.text.to_s.strip }.reject(&:empty?)
-      raise ValidationError, "Sitemap index has no child sitemap URLs: #{sitemap_path}" if child_locations.empty?
+      raise ValidationError, "Sitemap index has no child sitemap URLs: #{sitemap_filename}" if child_locations.empty?
 
       duplicate_children = child_locations.group_by(&:itself).select { |_loc, values| values.size > 1 }.keys
       unless duplicate_children.empty?
@@ -73,19 +74,30 @@ module Indexmap
       end
 
       child_locations.each do |location|
-        child_path = local_child_path(sitemap_path, location)
-        raise ValidationError, "Missing child sitemap file: #{child_path}" unless File.exist?(child_path)
+        child_filename = local_child_filename(location, parent_filename: sitemap_filename)
+        raise ValidationError, "Missing child sitemap file: #{child_filename}" unless storage.exist?(child_filename)
 
-        validate_sitemap_file!(child_path)
+        validate_sitemap_file!(child_filename)
       end
     end
 
-    def local_child_path(sitemap_path, location)
+    def local_child_filename(location, parent_filename:)
       uri = URI.parse(location)
-      filename = (uri.absolute? || location.start_with?("/")) ? File.basename(uri.path) : location
-      File.expand_path(filename, File.dirname(sitemap_path))
+      if uri.absolute? || location.start_with?("/")
+        normalize_local_filename(uri.path)
+      else
+        parent_directory = File.dirname(parent_filename)
+        normalize_local_filename((parent_directory == ".") ? location : File.join(parent_directory, location))
+      end
     rescue URI::InvalidURIError
-      File.expand_path(location, File.dirname(sitemap_path))
+      normalize_local_filename(location)
+    end
+
+    def normalize_local_filename(filename)
+      normalized = Pathname(filename.to_s).cleanpath.to_s.sub(%r{\A/+}, "")
+      return if normalized.empty? || normalized == ".." || normalized.start_with?("../")
+
+      normalized
     end
 
     def validate_presence!(entries)

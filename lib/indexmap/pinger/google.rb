@@ -36,7 +36,7 @@ module Indexmap
       end
 
       def ping_sitemap(sitemap_file)
-        sitemap_url = URI.join(host, File.basename(sitemap_file)).to_s
+        sitemap_url = storage.public_url(sitemap_file)
 
         unless authorized?
           logger.debug("Google Search Console does not have access to the site: #{root_domain}")
@@ -93,7 +93,7 @@ module Indexmap
 
       def sitemap_url_count(files)
         files.each_with_object(Set.new) do |sitemap_file, urls|
-          Parser.new(path: sitemap_file).entries.each do |entry|
+          Parser.new(source: sitemap_file, storage: storage).entries.each do |entry|
             loc = entry.loc.to_s.strip
             urls.add(loc) unless loc.empty?
           end

@@ -4,18 +4,15 @@ module Indexmap
   class Writer
     VALID_FORMATS = %i[index single_file].freeze
 
-    def initialize(public_path:, base_url:, sections: nil, entries: nil, index_filename: "sitemap.xml", format: :index)
+    def initialize(base_url:, sections: nil, entries: nil, index_filename: "sitemap.xml", format: :index)
       @entries = normalize_entries(entries)
       @format = normalize_format(format)
       @sections = normalize_sections(sections)
-      @public_path = Pathname(public_path)
       @base_url = base_url
       @index_filename = index_filename
     end
 
     def write
-      FileUtils.mkdir_p(public_path)
-
       return [write_file(index_filename, urlset_xml(entries))] if single_file?
 
       paths = sections.map do |section|
@@ -24,8 +21,6 @@ module Indexmap
 
       paths + [write_file(index_filename, index_xml(sections))]
     end
-
-    attr_accessor :public_path
 
     private
 
@@ -58,9 +53,7 @@ module Indexmap
     end
 
     def write_file(filename, body)
-      path = public_path.join(filename)
-      path.write(body)
-      path
+      Storage::File.new(filename: filename, body: body, content_type: "application/xml")
     end
 
     def urlset_xml(entries)
