@@ -77,7 +77,8 @@ Custom storage backends must accept the documented `content_type:` keyword on
 ```ruby
 class SitemapStorage
   def write(filename, body, content_type:)
-    # Persist body under filename and store content_type when the backend uses it.
+    # Persist body under filename and store content_type when the backend
+    # uses it.
   end
 
   def read(filename)
