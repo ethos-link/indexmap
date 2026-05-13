@@ -38,6 +38,13 @@ Upgrading an existing app? Read [UPGRADE.md](UPGRADE.md) before deploying,
 especially if the app uses custom storage or stores sitemap files under a
 directory prefix such as `sitemaps/`.
 
+## Documentation
+
+- [Search engine ping](docs/search-engine-ping.md): Google Search Console
+  credentials, Google property configuration, and IndexNow key setup.
+- [UPGRADE.md](UPGRADE.md): host-app migration steps for public contract
+  changes.
+
 ## Ruby Usage
 
 ```ruby
@@ -276,6 +283,8 @@ The built-in validator checks for:
 ## Search Engine Ping
 
 `indexmap` can ping Google Search Console and IndexNow after sitemap generation.
+See [Search engine ping](docs/search-engine-ping.md) for Google credential
+setup, Search Console property configuration, and IndexNow key provisioning.
 
 Available rake tasks:
 
@@ -287,77 +296,9 @@ bin/rails indexmap:index_now:write_key
 bin/rails indexmap:ping
 ```
 
-### Google Search Console
-
-Google pinging requires service account credentials:
-
-```ruby
-Indexmap.configure do |config|
-  config.google.credentials = -> { ENV["GOOGLE_SITEMAP"] }
-end
-```
-
-If `config.google.credentials` is blank, `indexmap:google:ping` skips Google submission.
-
-You can optionally override the Search Console property identifier:
-
-```ruby
-Indexmap.configure do |config|
-  config.google.credentials = -> { ENV["GOOGLE_SITEMAP"] }
-  config.google.property = -> { "sc-domain:example.com" }
-end
-```
-
-If `config.google.property` is not set, `indexmap` defaults to `sc-domain:<host>`.
-
-### IndexNow
-
-IndexNow submission requires a key. `indexmap` supports two ways to provide it:
-
-- set `config.index_now.key`
-- or keep a valid verification file in the configured storage as `<key>.txt`
-
-Configured-key example:
-
-```ruby
-Indexmap.configure do |config|
-  config.index_now.key = -> { ENV["INDEXNOW_KEY"] }
-end
-```
-
-If `config.index_now.key` is set, `indexmap:sitemap:create` also ensures the matching `<key>.txt` verification file exists in storage. It leaves an existing valid key file unchanged.
-
-If you need a non-standard verification filename, configure it explicitly:
-
-```ruby
-Indexmap.configure do |config|
-  config.index_now.key = -> { ENV["INDEXNOW_KEY"] }
-  config.index_now.key_filename = -> { "#{ENV.fetch("INDEXNOW_KEY")}.txt" }
-end
-```
-
-You can also disable automatic key-file writes entirely:
-
-```ruby
-Indexmap.configure do |config|
-  config.index_now.key = -> { ENV["INDEXNOW_KEY"] }
-  config.index_now.write_key_file = false
-end
-```
-
-If you prefer the file-based flow, run:
-
-```bash
-bin/rails indexmap:index_now:write_key
-```
-
-That task:
-
-- reuses an existing valid key file when present
-- otherwise generates a new key in `<key>.txt`
-- makes that key available to `indexmap:index_now:ping` without adding `config.index_now.key`
-
-If neither a configured key nor a valid key file is present, `indexmap:index_now:ping` skips IndexNow submission.
+If Google credentials are blank, `indexmap:google:ping` skips Google
+submission. If neither a configured IndexNow key nor a valid key file is
+present, `indexmap:index_now:ping` skips IndexNow submission.
 
 ## Development
 
