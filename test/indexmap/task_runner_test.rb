@@ -16,7 +16,7 @@ class IndexmapTaskRunnerTest < Minitest::Test
   end
 
   def test_create_writes_new_sitemap_and_key_file_without_deleting_unrelated_files
-    storage = Indexmap::Storage::Memory.new
+    storage = Indexmap::Storage::Memory.new(public_url: "https://cdn.example.com/sitemaps")
     storage.write("sitemap-pages.xml.gz", "old")
     storage.write("sitemap-extra.xml", "existing")
 
@@ -31,6 +31,18 @@ class IndexmapTaskRunnerTest < Minitest::Test
     assert_equal VALID_KEY, storage.read("#{VALID_KEY}.txt")
     assert_equal ["sitemap-pages.xml", "sitemap.xml"], result[:files]
     assert_equal ["sitemap-pages.xml", "sitemap.xml"], result[:written_files]
+    assert_equal [
+      {
+        filename: "sitemap-pages.xml",
+        location: "https://cdn.example.com/sitemaps/sitemap-pages.xml",
+        link_count: 1
+      },
+      {
+        filename: "sitemap.xml",
+        location: "https://cdn.example.com/sitemaps/sitemap.xml",
+        link_count: 1
+      }
+    ], result[:sitemaps]
     assert_equal "#{VALID_KEY}.txt", result[:index_now_key_filename]
   end
 
