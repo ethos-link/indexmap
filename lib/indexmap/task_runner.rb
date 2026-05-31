@@ -13,7 +13,12 @@ module Indexmap
       index_now_key_filename = write_index_now_key if configuration.index_now.write_key_file?
       configuration.run_after_create_callbacks
 
-      {files: written_files.map(&:to_s), written_files: written_files, index_now_key_filename: index_now_key_filename}
+      {
+        files: written_files.map(&:to_s),
+        written_files: written_files,
+        sitemaps: sitemap_details(written_files),
+        index_now_key_filename: index_now_key_filename
+      }
     end
 
     def format
@@ -59,6 +64,28 @@ module Indexmap
 
     def sitemap_files
       storage.list(prefix: "sitemap", suffix: ".xml")
+    end
+
+    def sitemap_details(files)
+      files.map do |filename|
+        {
+          filename: filename.to_s,
+          location: sitemap_location(filename),
+          link_count: sitemap_link_count(filename)
+        }
+      end
+    end
+
+    def sitemap_location(filename)
+      return storage.public_url(filename) if storage.respond_to?(:public_url)
+
+      filename.to_s
+    end
+
+    def sitemap_link_count(filename)
+      document = Nokogiri::XML(storage.read(filename.to_s))
+      document.remove_namespaces!
+      document.xpath("//loc").count
     end
   end
 end

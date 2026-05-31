@@ -5,7 +5,11 @@ namespace :indexmap do
       runner = Indexmap::TaskRunner.new
       create_result = runner.create
 
-      puts "Created, formatted, and validated #{file_count(create_result[:files])} in #{storage_description(runner)}."
+      puts "Created, formatted, and validated #{file_count(create_result[:files])}."
+      puts "Files created:"
+      create_result[:sitemaps].each do |sitemap|
+        puts "  - #{sitemap[:location]} (#{link_count(sitemap[:link_count])})"
+      end
       puts "IndexNow key file: #{create_result[:index_now_key_filename]}" if create_result[:index_now_key_filename]
     end
 
@@ -89,6 +93,10 @@ namespace :indexmap do
 
   def storage_description(runner)
     runner.storage
+  end
+
+  def link_count(count)
+    "#{count} #{(count == 1) ? "link" : "links"}"
   end
 
   def format_google_ping_failure(failure)
