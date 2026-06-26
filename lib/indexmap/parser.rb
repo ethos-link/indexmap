@@ -6,7 +6,7 @@ require "uri"
 
 module Indexmap
   class Parser
-    Entry = Struct.new(:loc, :lastmod, :source_sitemap, keyword_init: true)
+    Entry = Struct.new(:loc, :lastmod, :source_sitemap)
 
     def initialize(source: nil, rebase_remote_children: false, index_filename: Indexmap.configuration.index_filename, storage: Indexmap.configuration.storage)
       @source = (source || index_filename).to_s
