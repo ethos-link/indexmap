@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "bundler/setup"
+
 require "bundler/gem_tasks"
 require "rake/testtask"
 require "standard/rake"
@@ -172,7 +174,7 @@ namespace :release do
     tag = release_tag(version)
 
     sh "git add CHANGELOG.md lib/indexmap/version.rb"
-    sh %(git commit -m "chore(release): prepare v#{version}")
+    sh %(LEFTHOOK=0 git commit -m "chore(release): prepare v#{version}")
     sh %(git tag -a #{tag} -m "Release #{tag}")
     sh "git push origin #{branch}"
     sh "git push origin #{tag}"

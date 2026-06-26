@@ -22,17 +22,12 @@ validated, and aligned with this gem's public API.
 - Before finishing release-harness changes, run the focused release tests and
   a `git-cliff` smoke check.
 
-## Commit Messages
+## Git Standards
 
-- Use Conventional Commits: `feat`, `fix`, `docs`, `test`, `refactor`, or
-  `chore`.
-- Keep the subject imperative, specific, and under 72 characters.
-- Leave a blank line between the subject and body.
-- Write one coherent reason per commit; split unrelated work first.
-- Use the body when the reasoning matters. Explain why the change exists,
-  what approach was taken, and what constraints or side effects matter.
-- Wrap body lines at 72 characters so commit hooks and terminal tools stay
-  readable.
-- Avoid vague subjects such as `misc fixes`, `updates`, or `cleanup` unless
-  the cleanup is the actual scoped purpose.
-- Mention verification in the body when it materially helps future readers.
+- Use `main` as the canonical integration branch.
+- Never commit directly to `main` or `master`.
+- Use branches for all work.
+- Use Conventional Commits with `What:`, `Why:`, and `Where:` in the body.
+- Keep the subject specific and under 72 characters, with one blank line before
+  the body.
+- Follow the `git-standards` skill for the full validation checklist.

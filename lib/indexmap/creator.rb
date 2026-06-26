@@ -4,7 +4,7 @@ require "nokogiri"
 
 module Indexmap
   class Creator
-    ValidationConfiguration = Struct.new(:base_url, :index_filename, :storage, keyword_init: true)
+    ValidationConfiguration = Struct.new(:base_url, :index_filename, :storage)
 
     def initialize(output:)
       @output = output
