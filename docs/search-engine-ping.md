@@ -25,6 +25,21 @@ such as `https://example.com/sitemap.xml` to a verified Search Console
 property. It does not submit arbitrary page URLs to Google for immediate
 indexing.
 
+Current Google API contract:
+
+- API: Search Console Sitemaps API
+- Method: `PUT https://www.googleapis.com/webmasters/v3/sites/{siteUrl}/sitemaps/{feedpath}`
+- OAuth scope: `https://www.googleapis.com/auth/webmasters`
+- Request body: empty
+- Success response body: empty
+
+The Google Indexing API is a separate page-level API at
+`POST https://indexing.googleapis.com/v3/urlNotifications:publish` with the
+`https://www.googleapis.com/auth/indexing` scope. Google documents that API for
+JobPosting pages and livestreaming events with `BroadcastEvent` structured data,
+not for general sitemap submission. `indexmap` therefore uses the Search Console
+Sitemaps API for Google.
+
 ### Create The Google Credentials
 
 1. Open or create a Google Cloud project for the site.
@@ -200,6 +215,9 @@ same key that `indexmap` is submitting.
 ## References
 
 - [Google Search Console Sitemaps API](https://developers.google.com/webmaster-tools/v1/sitemaps/submit)
+- [Google Search Console API reference](https://developers.google.com/webmaster-tools/v1/api_reference_index)
+- [Google Indexing API urlNotifications reference](https://developers.google.com/search/apis/indexing-api/v3/reference/indexing/rest/v3/urlNotifications/)
+- [Google Indexing API usage limits](https://developers.google.com/search/apis/indexing-api/v3/using-api)
 - [Google Cloud service account keys](https://cloud.google.com/iam/docs/keys-create-delete)
 - [Search Console users and permissions](https://support.google.com/webmasters/answer/7687615)
 - [IndexNow protocol documentation](https://www.indexnow.org/documentation)
