@@ -72,20 +72,18 @@ Indexmap::Writer.new(
 
 ## Rails Usage
 
-For an app that uses Indexmap through rake tasks, load the task entrypoint only
-when an Indexmap task is requested. In the application's `Rakefile`, before
-`require_relative "config/application"`:
+Run the install generator after adding the gem:
 
-```ruby
-list_tasks = Rake.application.options.show_tasks || ARGV.any? { |argument| ["-T", "--tasks"].include?(argument) }
-require "indexmap/tasks" if list_tasks || ARGV.any? { |argument| argument.start_with?("indexmap:") }
+```bash
+bin/rails generate indexmap:install
 ```
 
-This preserves `bin/rails --tasks` and the `indexmap:*` tasks without loading
-Indexmap during normal Rails boot. Runtime callers and jobs should explicitly
-`require "indexmap"` immediately before configuring or using the gem.
+The generator creates `config/initializers/indexmap.rb` with an idempotent
+`IndexmapConfiguration.apply` loader and adds conditional `indexmap/tasks`
+loading to the application's `Rakefile`. This preserves `bin/rails --tasks` and
+the `indexmap:*` tasks without loading Indexmap during normal Rails boot.
 
-In an initializer:
+Customize the `Indexmap.configure` block inside the generated initializer:
 
 ```ruby
 Indexmap.configure do |config|
@@ -108,6 +106,17 @@ Indexmap.configure do |config|
   end
 end
 ```
+
+Runtime callers and jobs must apply the generated configuration before using
+Indexmap:
+
+```ruby
+IndexmapConfiguration.apply
+Indexmap.create
+```
+
+Rake tasks apply it automatically because `indexmap/tasks` loads the gem before
+Rails evaluates the initializer.
 
 Then run:
 
