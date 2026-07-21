@@ -18,14 +18,17 @@ require_relative "indexmap/entry"
 require_relative "indexmap/output"
 require_relative "indexmap/parser"
 require_relative "indexmap/pinger/base"
-require_relative "indexmap/pinger/google"
-require_relative "indexmap/pinger/index_now"
 require_relative "indexmap/section"
 require_relative "indexmap/task_runner"
 require_relative "indexmap/validator"
 require_relative "indexmap/writer"
 
 module Indexmap
+  module Pinger
+    autoload :Google, File.expand_path("indexmap/pinger/google", __dir__)
+    autoload :IndexNow, File.expand_path("indexmap/pinger/index_now", __dir__)
+  end
+
   class Error < StandardError; end
 
   class ConfigurationError < Error; end

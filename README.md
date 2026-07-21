@@ -19,8 +19,12 @@ By default, `indexmap` writes a sitemap index plus one or more child sitemap fil
 Add this line to your application's Gemfile:
 
 ```ruby
-gem "indexmap"
+gem "indexmap", require: false
 ```
+
+`require: false` keeps sitemap generation and search-engine clients out of web
+process boot. Require `indexmap` at the application boundary that generates a
+sitemap, or use the task setup below.
 
 And then execute:
 
@@ -67,6 +71,19 @@ Indexmap::Writer.new(
 ```
 
 ## Rails Usage
+
+For an app that uses Indexmap through rake tasks, load the task entrypoint only
+when an Indexmap task is requested. In the application's `Rakefile`, before
+`require_relative "config/application"`:
+
+```ruby
+list_tasks = Rake.application.options.show_tasks || ARGV.any? { |argument| ["-T", "--tasks"].include?(argument) }
+require "indexmap/tasks" if list_tasks || ARGV.any? { |argument| argument.start_with?("indexmap:") }
+```
+
+This preserves `bin/rails --tasks` and the `indexmap:*` tasks without loading
+Indexmap during normal Rails boot. Runtime callers and jobs should explicitly
+`require "indexmap"` immediately before configuring or using the gem.
 
 In an initializer:
 
