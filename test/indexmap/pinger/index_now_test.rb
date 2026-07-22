@@ -71,7 +71,14 @@ class IndexmapPingerIndexNowTest < Minitest::Test
   end
 
   def test_pings_all_sitemap_urls_when_no_cutoff_is_provided
-    configuration = configuration_with(storage: sitemap_storage)
+    storage = sitemap_storage
+    storage.write("sitemap-stale.xml", <<~XML)
+      <?xml version="1.0" encoding="UTF-8"?>
+      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <url><loc>https://www.example.com/retired</loc></url>
+      </urlset>
+    XML
+    configuration = configuration_with(storage: storage)
     configuration.index_now.key = VALID_KEY
 
     indexnow_url = "https://api.indexnow.org/indexnow"

@@ -21,6 +21,7 @@ class IndexmapInstallGeneratorTest < Minitest::Test
       assert File.exist?(initializer)
       assert_includes File.read(initializer), "module IndexmapConfiguration"
       assert_includes File.read(initializer), "IndexmapConfiguration.apply if defined?(Indexmap)"
+      assert_includes File.read(initializer), "Search-engine pings start from config.index_filename"
       assert_includes rakefile, 'require "indexmap/tasks"'
       assert_operator rakefile.index('require "indexmap/tasks"'), :<, rakefile.index('require_relative "config/application"')
 
@@ -43,6 +44,7 @@ class IndexmapInstallGeneratorTest < Minitest::Test
         IndexmapConfiguration.apply
         abort "configuration replaced" unless Indexmap.configuration.equal?(configuration)
         abort "base URL missing" unless configuration.base_url == "http://localhost:3000"
+        abort "index filename missing" unless configuration.index_filename == "sitemap.xml"
       RUBY
       _stdout, stderr, status = Open3.capture3(
         RbConfig.ruby,

@@ -18,6 +18,11 @@ bin/rails indexmap:ping
 `indexmap:sitemap:create` before pinging so the configured storage contains the
 current sitemap files.
 
+The configured `index_filename` is the authoritative sitemap entrypoint.
+Google submits that sitemap URL once. IndexNow recursively reads its referenced
+child sitemaps and submits their page URLs. Other sitemap-shaped files left in
+storage are ignored unless the authoritative sitemap references them.
+
 ## Google Search Console
 
 Google submission uses the Search Console Sitemaps API. It submits sitemap URLs

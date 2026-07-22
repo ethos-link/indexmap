@@ -20,6 +20,7 @@ module IndexmapConfiguration
           )
         }
 
+        # Search-engine pings start from config.index_filename (default: "sitemap.xml").
         # Configure the sitemap data owned by your application:
         # config.sections = -> { Sitemap.sections }
       end

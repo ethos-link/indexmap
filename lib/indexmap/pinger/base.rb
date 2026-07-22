@@ -51,7 +51,10 @@ module Indexmap
       end
 
       def sitemap_files
-        storage.list(prefix: "sitemap", suffix: ".xml")
+        index_filename = configuration.index_filename.to_s
+        return [] if index_filename.empty? || !storage.exist?(index_filename)
+
+        [index_filename]
       end
 
       def ping_sitemap(_sitemap_file)

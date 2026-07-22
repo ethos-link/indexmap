@@ -3,6 +3,17 @@
 Use this guide when upgrading an application that already generates, validates,
 or pings sitemaps with `indexmap`.
 
+## Unreleased
+
+Search-engine ping tasks now treat `config.index_filename` as the authoritative
+sitemap entrypoint. Google submits that sitemap once, and IndexNow recursively
+reads the child sitemaps it references. Unreferenced `sitemap*.xml` files in the
+configured storage are no longer submitted or included in IndexNow URL batches.
+
+Before upgrading, ensure every current sitemap is reachable from the configured
+root sitemap. If an application intentionally maintains an independent named
+output, submit that output separately instead of relying on storage discovery.
+
 ## Upgrading To 0.6.x
 
 Version 0.6.x routes every sitemap operation through the configured storage
@@ -122,9 +133,12 @@ RAILS_ENV=production bin/rails indexmap:ping
 Before deploying, confirm:
 
 - `config.base_url` is the public origin for the environment.
-- `config.storage.public_url(filename)` returns fetchable sitemap URLs.
-- `storage.list(prefix: "sitemap", suffix: ".xml")` returns every generated
-  sitemap file, including files under directories.
+- `config.index_filename` identifies the public root sitemap and exists in the
+  configured storage.
+- The root sitemap references every current child sitemap. Unreferenced sitemap
+  files in storage are intentionally ignored by the pingers.
+- `config.storage.public_url(config.index_filename)` returns the fetchable root
+  sitemap URL.
 - `indexmap:sitemap:validate` passes against the same storage used by
   production.
 - If IndexNow is enabled, the `<key>.txt` verification file is present in the
