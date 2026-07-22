@@ -69,11 +69,17 @@ class IndexmapPingerGoogleTest < Minitest::Test
           <url><loc>https://www.example.com/about</loc></url>
         </urlset>
       XML
-      "sitemap-posts.xml" => <<~XML
+      "sitemap-posts.xml" => <<~XML,
         <?xml version="1.0" encoding="UTF-8"?>
         <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
           <url><loc>https://www.example.com/about</loc></url>
           <url><loc>https://www.example.com/blog</loc></url>
+        </urlset>
+      XML
+      "sitemap-stale.xml" => <<~XML
+        <?xml version="1.0" encoding="UTF-8"?>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://www.example.com/retired</loc></url>
         </urlset>
       XML
     )
@@ -88,11 +94,9 @@ class IndexmapPingerGoogleTest < Minitest::Test
     ).ping
 
     assert_equal :submitted, result[:status]
-    assert_equal 3, result[:sitemap_count]
+    assert_equal 1, result[:sitemap_count]
     assert_equal 3, result[:url_count]
     assert_equal [
-      ["sc-domain:example.com", "https://www.example.com/sitemap-pages.xml"],
-      ["sc-domain:example.com", "https://www.example.com/sitemap-posts.xml"],
       ["sc-domain:example.com", "https://www.example.com/sitemap.xml"]
     ], service.submissions
   end
