@@ -131,6 +131,103 @@ formats them, validates the result, then writes the final XML files to the
 configured storage. Existing sitemap files are left untouched if generation or
 validation fails.
 
+### Background Generation
+
+Keep the refresh job and its scheduling in the host application. Indexmap does
+not select a queue adapter, run workers, or deduplicate jobs. Apply the generated
+configuration inside the job. Use `Indexmap::TaskRunner.new.create` for the
+rake task's complete lifecycle, including `after_create` callbacks and IndexNow
+key-file handling; `Indexmap.create` only generates the selected output.
+
+#### GoodJob
+
+With GoodJob 4.22.1 or newer, use its public labelled concurrency rules:
+
+```ruby
+class SitemapRefreshJob < ApplicationJob
+  include GoodJob::ActiveJobExtensions::Concurrency
+
+  good_job_concurrency_rule(
+    perform_limit: 1,
+    label: "sitemap-refresh",
+    apply_label: true
+  )
+
+  good_job_concurrency_rule(
+    total_limit: 1,
+    label: -> { "sitemap-refresh:#{arguments.first}" },
+    apply_label: true
+  )
+
+  def perform(_version)
+    IndexmapConfiguration.apply
+    Indexmap::TaskRunner.new.create
+  end
+end
+```
+
+Enqueue with a release identifier: `SitemapRefreshJob.perform_later(version)`.
+The version label limits unfinished work for that release; the shared label
+limits generation across releases to one execution at a time. A newer release
+can enqueue while an older refresh is unfinished. A repeat enqueue is allowed
+after completion: these controls do not provide permanent once-per-release
+tracking. Use `perform_later`; direct `perform_now` calls bypass GoodJob's limits.
+See [GoodJob concurrency controls](https://github.com/bensheldon/good_job#concurrency-controls).
+
+#### Solid Queue
+
+With Solid Queue 1.7 or newer, serialize writes to the shared sitemap output:
+
+```ruby
+class SitemapRefreshJob < ApplicationJob
+  limits_concurrency to: 1, key: "sitemap-refresh",
+    duration: 30.minutes, on_conflict: :block
+
+  def perform(_version)
+    IndexmapConfiguration.apply
+    Indexmap::TaskRunner.new.create
+  end
+end
+```
+
+Choose a duration longer than the expected generation time. `:block` retains
+every refresh and runs them serially; it does not suppress duplicate enqueues.
+Using `on_conflict: :discard` coalesces conflicting requests, including requests
+for newer releases when the key is shared. A version-based key such as
+`->(version) { "sitemap-refresh:#{version}" }` scopes conflicts to that release,
+but permits different releases to write concurrently. Select that tradeoff
+explicitly; it is not equivalent to GoodJob's two rules above. Direct
+`perform_now` calls bypass queue coordination.
+See [Solid Queue concurrency controls](https://github.com/rails/solid_queue#concurrency-controls).
+
+#### Triggering Refreshes
+
+Enqueue from one release task, a recurring schedule, or application startup.
+Rails' `after_initialize` hook can enqueue from a worker application without
+depending on a backend's worker callbacks:
+
+```ruby
+Rails.application.config.after_initialize do
+  if Rails.env.production? && ENV["PROCESS_ROLE"] == "worker"
+    SitemapRefreshJob.perform_later(ENV.fetch("RELEASE_VERSION")) do |job|
+      raise job.enqueue_error if job.enqueue_error
+    end
+  end
+end
+```
+
+`PROCESS_ROLE` and `RELEASE_VERSION` are application-defined environment values.
+Configure them in the deployment, with the worker role flag limited to worker
+processes. `after_initialize` runs for every Rails process, including commands;
+it indicates application initialization, not worker readiness. Complete database
+preparation before starting workers. Suppressed enqueues are expected; report
+actual enqueue errors. Avoid scheduling the same refresh from both startup and
+a release task.
+
+Use storage shared by all serving containers, such as object storage through
+the Active Storage adapter. A job container's local filesystem is not shared
+with web containers unless the deployment mounts the same persistent storage.
+
 ### Default Index Mode
 
 This is the default behavior. `indexmap` writes:
@@ -273,6 +370,7 @@ Then the job can stay small:
 ```ruby
 class Insights::SitemapRefreshJob < ApplicationJob
   def perform
+    IndexmapConfiguration.apply
     Indexmap.create(:insights_data)
   end
 end
