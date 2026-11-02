@@ -410,6 +410,11 @@ The built-in validator checks for:
 See [Search engine ping](docs/search-engine-ping.md) for Google credential
 setup, Search Console property configuration, and IndexNow key provisioning.
 
+For Rails apps with sitemaps outside `public/`, see
+[serving an IndexNow key from `public/`](docs/search-engine-ping.md#rails-public-key-file-with-separate-sitemap-storage).
+Key discovery searches the configured sitemap storage, so an existing public
+key file needs explicit configuration in that setup.
+
 Available rake tasks:
 
 ```bash
