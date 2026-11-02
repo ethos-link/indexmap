@@ -154,6 +154,10 @@ curl -fsS https://example.com/<key>.txt
 
 The response body should be the key only, with no extra text.
 
+Key discovery only searches `config.storage`. For example, when sitemap storage
+points at `storage/sitemaps`, a verification file in Rails' `public/` directory
+will not be discovered. Use the configuration below for that arrangement.
+
 ### Configured Key
 
 If the host app already stores an IndexNow key in credentials or environment
@@ -188,6 +192,61 @@ Indexmap.configure do |config|
 end
 ```
 
+### Rails Public Key File With Separate Sitemap Storage
+
+If Rails serves an existing verification file from `public/` while sitemaps
+live in `storage/sitemaps` or another backend, configure the key explicitly and
+keep the host app responsible for serving the file:
+
+```ruby
+Indexmap.configure do |config|
+  config.base_url = -> { "https://www.example.com" }
+  config.storage = lambda {
+    Indexmap::Storage::Filesystem.new(
+      path: Rails.root.join("storage/sitemaps"),
+      public_url: config.base_url
+    )
+  }
+  config.index_now.key = -> {
+    Rails.public_path.join("0123456789abcdef0123456789abcdef.txt").read.strip
+  }
+  config.index_now.write_key_file = false
+end
+```
+
+Replace the example filename with your existing `<key>.txt` filename. For a new
+key, generate one with `ruby -rsecurerandom -e 'print SecureRandom.hex(16)'`, then
+create `public/<key>.txt` containing exactly that key, without a trailing newline.
+Deploy the file with the application.
+
+`write_key_file = false` prevents sitemap generation from writing a second key
+file into sitemap storage. It does not change where the pinger searches for a
+key, so `config.index_now.key` must also be set.
+
+The pinger builds `keyLocation` using
+`config.storage.public_url(config.index_now.key_filename)`. In this example,
+that URL is `https://www.example.com/<key>.txt`. Ensure the storage adapter
+returns the actual public verification URL; adapters with a different public
+origin or path need a matching publicly served file there.
+
+The host app must also serve the sitemap files at their configured public URLs.
+A filesystem adapter writes files but does not create Rails routes for them.
+
+Before submitting URLs, verify the deployed file and run a dry run in the
+production environment:
+
+```bash
+curl -fsS https://www.example.com/<key>.txt
+RAILS_ENV=production bin/rails indexmap:sitemap:create
+RAILS_ENV=production bin/rails indexmap:sitemap:validate
+RAILS_ENV=production INDEXNOW_DRY_RUN=1 bin/rails indexmap:index_now:ping
+```
+
+The curl response must contain exactly the configured key. A dry run checks
+local key loading and sitemap parsing; it does not verify that IndexNow can
+fetch the public file. After those checks, run
+`RAILS_ENV=production bin/rails indexmap:index_now:ping` to submit the URLs.
+
 ### Ping IndexNow
 
 Run:
@@ -213,7 +272,9 @@ INDEXNOW_RECENT_HOURS=24 bin/rails indexmap:index_now:ping
 ```
 
 If the task says the key is missing, either configure `config.index_now.key` or
-run `indexmap:index_now:write_key` and deploy the generated key file. If the
+run `indexmap:index_now:write_key` and deploy the generated key file. If a key
+file already exists in `public/`, check whether `config.storage` points at a
+different directory; use the separate-storage example above in that case. If the
 remote endpoint returns `403`, verify that the public key file URL returns the
 same key that `indexmap` is submitting.
 
