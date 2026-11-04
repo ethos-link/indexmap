@@ -76,32 +76,75 @@ class ReleaseTaskTest < Minitest::Test
     )
   end
 
-  def test_release_preparation_rejects_protected_and_detached_branches
-    ["main", "master", ""].each do |branch|
+  def test_release_preparation_requires_main
+    ["release/0.9.0", "master", ""].each do |branch|
       error = assert_raises(ArgumentError) { validate_release_branch!(branch) }
-      assert_match(/topic branch/, error.message)
+      assert_match(/Prepare releases from main/, error.message)
     end
-    assert_nil validate_release_branch!("release/0.9.0")
+    assert_nil validate_release_branch!("main")
   end
 
-  def test_prepare_updates_files_without_committing_tagging_or_pushing
-    script = <<~RUBY
-      require "rake"
-      load "Rakefile"
-      def current_branch = "release/next"
-      def clean_worktree? = true
-      def validate_release_version!(*); end
-      def update_changelog(version) = puts("changelog:" + version)
-      def update_version_file(version) = puts("version:" + version)
-      def sh(*) = abort("unexpected shell mutation")
-      Rake::Task["release:prepare"].invoke("minor")
-    RUBY
-    stdout, stderr, status = Open3.capture3(RbConfig.ruby, "-e", script)
-    assert status.success?, stderr
-    expected = release_version("minor")
-    assert_includes stdout, "changelog:#{expected}"
-    assert_includes stdout, "version:#{expected}"
-    assert_includes stdout, "release:tag"
+  def test_prepare_commits_and_pushes_from_main_with_release_hook_exception
+    with_release_repository do |repo, origin|
+      before = git!(repo, "rev-parse", "HEAD").strip
+      history = File.read(File.join(repo, "CHANGELOG.md"))
+      hook = File.join(repo, ".git/hooks/pre-commit")
+      File.write(hook, "#!/bin/sh\nexec ruby script/check_commit_branch.rb\n")
+      FileUtils.chmod(0o755, hook)
+
+      stdout, stderr, status = run_release_task(repo, "release:prepare[minor]")
+      assert status.success?, stdout + stderr
+      expected = release_version("minor")
+      refute_equal before, git!(repo, "rev-parse", "HEAD").strip
+      assert_equal git!(repo, "rev-parse", "HEAD"), git!(origin, "rev-parse", "main")
+      assert_equal "CHANGELOG.md\nlib/indexmap/version.rb\n",
+        git!(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD")
+      assert_includes File.read(File.join(repo, "lib/indexmap/version.rb")), expected
+      assert_includes File.read(File.join(repo, "CHANGELOG.md")), "## [#{expected}]"
+      assert File.read(File.join(repo, "CHANGELOG.md")).end_with?(history[history.index("## [")..])
+      message = git!(repo, "log", "-1", "--format=%B")
+      assert_includes message, "chore(release): prepare v#{expected}"
+      %w[What: Why: Where:].each { |heading| assert_includes message, heading }
+      assert_empty git!(repo, "status", "--porcelain")
+      assert_empty git!(repo, "tag", "--list")
+      assert_empty git!(origin, "tag", "--list")
+      assert_includes stdout, "release:tag"
+
+      stdout, stderr, status = run_release_task(repo, "release:tag")
+      assert status.success?, stdout + stderr
+      assert_equal git!(repo, "rev-parse", "HEAD"), git!(origin, "rev-parse", "v#{expected}^{}")
+    end
+  end
+
+  def test_prepare_keeps_commit_hooks_enabled_and_does_not_push_when_they_fail
+    with_release_repository do |repo, origin|
+      before = git!(origin, "rev-parse", "main")
+      hook = File.join(repo, ".git/hooks/commit-msg")
+      File.write(hook, "#!/bin/sh\necho 'commit hook rejected release' >&2\nexit 1\n")
+      FileUtils.chmod(0o755, hook)
+
+      stdout, stderr, status = run_release_task(repo, "release:prepare[minor]")
+      refute status.success?, stdout + stderr
+      assert_includes stderr, "commit hook rejected release"
+      assert_equal before, git!(repo, "rev-parse", "HEAD")
+      assert_equal before, git!(origin, "rev-parse", "main")
+      assert_empty git!(origin, "tag", "--list")
+    end
+  end
+
+  def test_branch_hook_rejects_ordinary_main_commits_even_with_release_flag
+    with_release_repository do |repo, _origin|
+      File.write(File.join(repo, "unrelated.txt"), "unrelated")
+      git!(repo, "add", "unrelated.txt")
+      [nil, "1"].each do |flag|
+        _stdout, stderr, status = Open3.capture3(
+          {"INDEXMAP_RELEASE_COMMIT" => flag},
+          RbConfig.ruby, "script/check_commit_branch.rb", chdir: repo
+        )
+        refute status.success?
+        assert_includes stderr, "Direct commits to 'main' are not allowed"
+      end
+    end
   end
 
   def test_tag_pushes_only_the_prepared_merged_commit
@@ -116,14 +159,33 @@ class ReleaseTaskTest < Minitest::Test
     end
   end
 
+  def test_prepare_rejects_topic_and_detached_branches_without_changing_files
+    with_release_repository do |repo, origin|
+      before = git!(repo, "rev-parse", "HEAD").strip
+      git!(repo, "checkout", "-b", "release/next")
+      ["release/next", before].each do |ref|
+        git!(repo, "checkout", ref)
+        stdout, stderr, status = run_release_task(repo, "release:prepare[minor]")
+        refute status.success?, stdout + stderr
+        assert_includes stderr, "Prepare releases from main"
+        assert_equal before, git!(repo, "rev-parse", "HEAD").strip
+        assert_empty git!(repo, "status", "--porcelain")
+        assert_empty git!(origin, "tag", "--list")
+      end
+    end
+  end
+
   def test_tag_rejects_main_that_has_not_been_merged_to_origin
     with_release_repository do |repo, origin|
       File.write(File.join(repo, "unmerged.txt"), "unmerged")
       git!(repo, "add", "unmerged.txt")
       git!(repo, "commit", "-m", "test: unmerged change")
-      stdout, stderr, status = run_release_task(repo, "release:tag")
-      refute status.success?, stdout + stderr
-      assert_includes stderr, "Local main must match origin/main"
+      %w[release:prepare[minor] release:tag].each do |task|
+        stdout, stderr, status = run_release_task(repo, task)
+        refute status.success?, stdout + stderr
+        assert_includes stderr, "Local main must match origin/main"
+        assert_empty git!(repo, "status", "--porcelain")
+      end
       assert_empty git!(repo, "tag", "--list")
       assert_empty git!(origin, "tag", "--list")
     end
@@ -140,7 +202,8 @@ class ReleaseTaskTest < Minitest::Test
       git!(repo, "init", "-b", "main")
       git!(repo, "config", "user.name", "Release Test")
       git!(repo, "config", "user.email", "release@example.test")
-      %w[Rakefile indexmap.gemspec CHANGELOG.md lib/indexmap/version.rb].each do |file|
+      %w[Rakefile indexmap.gemspec CHANGELOG.md cliff.toml lib/indexmap/version.rb script/check_commit_branch.rb].each do |file|
+        FileUtils.mkdir_p(File.dirname(File.join(repo, file)))
         FileUtils.cp(File.expand_path("../#{file}", __dir__), File.join(repo, file))
       end
       git!(repo, "add", ".")
@@ -161,7 +224,7 @@ class ReleaseTaskTest < Minitest::Test
   def run_release_task(directory, task)
     Open3.capture3(
       {"BUNDLE_GEMFILE" => File.expand_path(ENV.fetch("BUNDLE_GEMFILE", "Gemfile"))},
-      RbConfig.ruby, "-rrake", "-e", 'load "Rakefile"; Rake::Task[ARGV.fetch(0)].invoke', task,
+      RbConfig.ruby, "-rrake", "-e", 'load "Rakefile"; Rake.application.invoke_task(ARGV.fetch(0))', task,
       chdir: directory
     )
   end

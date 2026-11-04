@@ -31,6 +31,11 @@ jobs:
           ruby-version: ${{ matrix.ruby-version }}
           bundler-cache: true
 
+      - name: Install git-cliff for release tests
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
       - name: Run tests and Standard Ruby
         run: bundle exec rake
 

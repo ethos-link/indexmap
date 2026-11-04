@@ -75,12 +75,16 @@ cleanup by object key even when Active Storage already removed the blob row.
 
 ### Maintainer release workflow
 
-`release:prepare[...]` now requires a topic branch and only updates the version
-and changelog for review. Commit using the repository's normal hooks and merge
-to `main`. From clean, updated `main`, run `bundle exec rake release:tag` to create
-and push the release tag. Scripts that relied on preparation committing or pushing
-must split those steps. No hooks are bypassed and no release commit is made on
-`main`. See the [release instructions](README.md#release).
+`release:prepare[...]` now runs from clean, updated `main` matching
+`origin/main`. It updates the version and changelog, creates a Conventional
+Commit with hooks enabled, and pushes `main`. Replace scripts that prepare on a
+topic branch or separately commit those files. The branch hook permits only a
+release-task commit containing the bumped version and matching changelog; other
+changes still require a topic branch. Ensure remote branch protections permit
+the maintainer to push this release commit. Then run `bundle exec rake release:tag`
+to create and push the tag. If pushing preparation fails, push the existing
+release commit before tagging rather than preparing the same version again.
+See the [release instructions](README.md#release).
 
 ### Task loading, parsing, and documentation
 
