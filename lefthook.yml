@@ -1,11 +1,10 @@
+pre-commit:
+  jobs:
+    - name: feature-branch
+      run: bundle exec ethos-gemkit guard
+    - name: standard
+      run: bundle exec rake standard
 commit-msg:
   jobs:
     - name: commitlint
-      run: bundle exec commitlint --message {1}
-    - name: standard
-      run: bundle exec rake standard
-
-pre-commit:
-  jobs:
-    - name: protect-main-master
-      run: ruby script/check_commit_branch.rb
+      run: bundle exec ethos-gemkit commitlint --message {1}

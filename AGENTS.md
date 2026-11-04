@@ -25,9 +25,9 @@ validated, and aligned with this gem's public API.
 ## Git Standards
 
 - Use `main` as the canonical integration branch.
-- Never commit ordinary changes directly to `main` or `master`.
-- The maintainer release task may commit only the version and changelog on
-  `main` with hooks enabled; implement and review task changes on a branch.
+- Never commit directly to `main` or `master`.
+- Gemkit prepares releases on conventional branches; workflow publication
+  follows the reviewed release PR merge.
 - Use branches for all development work.
 - Use Conventional Commits with `What:`, `Why:`, and `Where:` in the body.
 - Keep the subject specific and under 72 characters, with one blank line before

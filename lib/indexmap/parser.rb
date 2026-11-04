@@ -3,7 +3,6 @@
 require "net/http"
 require "nokogiri"
 require "uri"
-require "pathname"
 require "stringio"
 
 module Indexmap
@@ -253,7 +252,7 @@ module Indexmap
 
       if loc.start_with?("http://", "https://")
         path = URI.parse(loc).path
-        (path.nil? || path.empty?) ? "/" : path
+        path.to_s.empty? ? "/" : path
       elsif loc.start_with?("/")
         loc
       else

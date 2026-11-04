@@ -1,44 +1,13 @@
-name: Ruby
-
+name: Verification
 on:
-  push:
-    branches: ["main", "master"]
   pull_request:
-  workflow_call:
-
+  push:
+    branches: [main]
 permissions:
   contents: read
-
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        ruby-version: ["3.2", "3.4", "4.0"]
-        gemfile: ["Gemfile"]
-        include:
-          - ruby-version: "3.2"
-            gemfile: gemfiles/rails_7_1.gemfile
-    env:
-      BUNDLE_GEMFILE: ${{ matrix.gemfile }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: ${{ matrix.ruby-version }}
-          bundler-cache: true
-
-      - name: Install git-cliff for release tests
-        uses: taiki-e/install-action@v2
-        with:
-          tool: git-cliff
-
-      - name: Run tests and Standard Ruby
-        run: bundle exec rake
-
+  checks:
+    uses: ethos-link/ethos-gemkit/.github/workflows/consumer.yml@a26cf190e0d727596484be8a7f01c9046c95dd78 # v0.2.0
   integration:
     runs-on: ubuntu-latest
     services:
@@ -58,26 +27,11 @@ jobs:
       BUNDLE_GEMFILE: gemfiles/integration.gemfile
       INDEXMAP_DATABASE_URL: postgresql://postgres@localhost:5432/indexmap_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ruby/setup-ruby@de492cf36cbab201753d720ce4f4e336cd688c94 # v1
         with:
-          ruby-version: "4.0"
+          ruby-version: "4.0.9"
+          bundler: "4.0.11"
           bundler-cache: true
       - name: Verify Active Storage and both job backends
         run: bundle exec ruby script/integration
-
-  changelog:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Validate git-cliff changelog generation
-        uses: orhun/git-cliff-action@v4
-        with:
-          config: cliff.toml
-          args: --unreleased --verbose
-        env:
-          OUTPUT: /tmp/changelog-preview.md

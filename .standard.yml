@@ -1,1 +1,13 @@
-ruby_version: "3.2"
+ruby_version: "4.0"
+
+plugins:
+  - ethos-gemkit
+
+# These controllers are gem-owned endpoints, independent of host ApplicationController.
+ignore:
+  - "lib/indexmap/{robots,sitemaps}_controller.rb":
+    - Rails/ApplicationController
+
+  # XML lastmod parsing must preserve the explicit source UTC offset.
+  - "lib/indexmap/writer.rb":
+    - Rails/TimeZone

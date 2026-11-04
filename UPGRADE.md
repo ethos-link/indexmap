@@ -5,6 +5,18 @@ or pings sitemaps with `indexmap`.
 
 ## Unreleased
 
+### Shared development and release tooling
+
+Use Ruby 4 and published Gemkit 0.2.0. Install the bundle and hooks, then run the
+project's verification command from the README. Prepare releases from clean,
+current main; merging the generated release PR publishes through Actions.
+See the [Gemkit upgrade guide](https://github.com/ethos-link/ethos-gemkit/blob/main/UPGRADE.md)
+for workflow permissions and registry setup.
+
+Rails integration, where provided, requires host-installed Rails 8. Plain Ruby
+entry points remain available without Railties.
+
+
 ### Host loader and rendered artifacts
 
 The install generator now defines `Indexmap::HostConfiguration.apply` instead of
@@ -73,21 +85,6 @@ unattached-blob cleanup, and working attachment purge jobs. A
 its cause. Retain those private diagnostics; a failed service deletion can require
 cleanup by object key even when Active Storage already removed the blob row.
 
-### Maintainer release workflow
-
-`release:prepare[...]` now runs from clean, updated `main` matching
-`origin/main`. It updates the version and changelog, creates a Conventional
-Commit with hooks enabled, pushes `main`, then creates and pushes the annotated
-version tag to trigger publishing in GitHub Actions. Replace scripts that prepare
-on a topic branch or separately commit or tag those files. The branch hook permits
-only a release-task commit containing the bumped version and matching changelog; other
-changes still require a topic branch. Ensure remote branch protections permit
-the maintainer to push this release commit. `release:tag` remains available to
-resume a release whose commit was already pushed without a tag. If preparation
-fails after committing, push the existing release commit and resume tagging
-rather than preparing the same version again. If the tag exists locally after a
-failed tag push, retry pushing that tag.
-See the [release instructions](README.md#release).
 
 ### Task loading, parsing, and documentation
 
