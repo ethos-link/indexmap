@@ -1,10 +1,29 @@
 # Dynamic sitemaps and IndexNow delivery
 
 Status: correctness, selection visibility, and opt-in robots delivery are
-implemented in the working tree, not released. See the README and
+implemented in open pull requests, not released. See the README and
 `docs/search-engine-ping.md` for current usage and `UPGRADE.md` for contract
 changes. Streaming, atomic collection publication, and app migrations remain
 proposed. The scope is reusable behavior for Reviato, Nuntio, and Places.
+
+## Delivery status
+
+Neither pull request is merged or released. Usage belongs in the README and
+`docs/search-engine-ping.md`; this document distinguishes remaining design from
+implemented capabilities.
+
+| Capability | Status |
+| --- | --- |
+| Provider resolution, validation limits, graph safety, and cutoff fixes | Implemented in [PR #21](https://github.com/ethos-link/indexmap/pull/21). |
+| IndexNow selection export, attempt reporting, timeouts, and partial results | Implemented in PR #21; exports require operator retention, not a gem ledger. |
+| Configuration-backed robots endpoint | Implemented in PR #21; mounting and deployment policy remain opt-in. |
+| Single-pass section consumption and index date calculation | Implemented in [PR #22](https://github.com/ethos-link/indexmap/pull/22), stacked on PR #21. |
+| Complete bounded-memory streaming and automatic partitions | Not implemented. Single-pass enumeration is only a prerequisite. |
+| Immutable generations, atomic activation, coordination, and retention | Not implemented; current publication is sequential. |
+| Shared Rails sitemap delivery | Not implemented; host serving remains in place. |
+| Host migrations and real GoodJob/Solid Queue integration verification | Not completed; existing generation entrypoints and backend configuration are preserved. |
+| Automatic batch retries | Not implemented. |
+| Durable private history, inventory diffs, and crash reconciliation | Deferred behind the private-store and content-version decision gates. |
 
 Indexmap should own sitemap generation, validation, publication, optional Rails
 delivery, robots formatting, and inspectable IndexNow submissions. Applications

@@ -228,6 +228,42 @@ Use storage shared by all serving containers, such as object storage through
 the Active Storage adapter. A job container's local filesystem is not shared
 with web containers unless the deployment mounts the same persistent storage.
 
+#### Operating Practices And Current Limits
+
+Generate database-backed content after database preparation, through one
+host-owned refresh job. Load the existing configuration inside that job and
+query eligible records when it runs. Pass release or output identifiers rather
+than relations, URL inventories, or credentials. Keep queue selection, recurring
+schedules, and any application authorization context in the host.
+
+Use a shared concurrency key or label for jobs writing the same destination,
+across releases. Prefer blocking or rescheduling conflicts to discarding a newer
+refresh. Backend controls do not protect manual rake invocations, and Solid
+Queue's concurrency duration can expire before an unusually long job finishes.
+Avoid concurrent writers through all entrypoints. Current storage writes are
+sequential: validation failure preserves published files, but an interrupted
+publication can leave a mixture of old and new children. Atomic collection
+publication and retained generations are not implemented.
+
+Keep generation and search-engine submission separate. A refresh retry should
+not automatically resend successful IndexNow batches. Make `after_create`
+callbacks safe to repeat: they run after publication, and a callback failure does
+not roll published files back. Validate the deployed sitemap and preview IndexNow
+selection before submitting. See [selection and attempt reports](docs/search-engine-ping.md#inspect-selection-and-actual-attempts).
+
+Batch source queries with native Rails APIs and select the fields needed for
+URLs and dates. Supply meaningful content dates; do not use the refresh time as
+`lastmod`. Each sitemap must stay within 50,000 entries and 52,428,800 uncompressed
+bytes. The gem rejects oversized documents; the host still owns partitioning.
+Measure the complete refresh before adding parallel jobs or caches. Lazy section
+sources avoid repeat enumeration but do not bound XML or validation memory.
+
+Generation uses the same synchronous entrypoints with GoodJob and Solid Queue;
+the examples above describe their different concurrency behavior. Verify the
+host's actual adapter, workers, shared storage, failure reporting, and intended
+system context in integration tests. Gem tests alone do not establish those
+deployment guarantees.
+
 ### Dynamic Robots
 
 Indexmap can serve `/robots.txt` from configuration without querying content or
