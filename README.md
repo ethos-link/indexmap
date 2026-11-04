@@ -565,6 +565,9 @@ The gem requires Ruby 3.2+ and Active Support/railties 7.1+. CI exercises the
 Rails 7.1 floor on Ruby 3.2 and Rails 8.1.4 integration on Ruby 4.0, alongside the
 normal Ruby matrix. See [integration checks](docs/dynamic-sitemaps.md#integration-checks-from-a-source-checkout).
 
+Install [git-cliff](https://git-cliff.org/) before running tests; the release
+tests use it to generate changelogs in temporary repositories.
+
 Run tests:
 
 ```bash
