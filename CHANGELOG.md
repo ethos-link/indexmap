@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-11-04
+
+
+### Added
+
+- require Ruby 4 and adopt Gemkit
+
+- require Ruby 4 and adopt Gemkit ([#27](https://github.com/ethos-link/indexmap/pull/27))
+
+
+
+
+### Fixed
+
+- push the version tag during preparation
+
+- push the version tag during preparation ([#26](https://github.com/ethos-link/indexmap/pull/26))
+
+
+
 ## [0.9.0] - 2026-11-04
 
 

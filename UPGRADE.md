@@ -3,7 +3,7 @@
 Use this guide when upgrading an application that already generates, validates,
 or pings sitemaps with `indexmap`.
 
-## Unreleased
+## 0.10.0
 
 ### Shared development and release tooling
 
