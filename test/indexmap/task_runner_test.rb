@@ -116,6 +116,16 @@ class IndexmapTaskRunnerTest < Minitest::Test
     assert_includes storage.read("sitemap.xml"), "\n  <url>"
   end
 
+  def test_generation_reports_do_not_download_published_artifacts
+    storage = Class.new(Indexmap::Storage::Memory) do
+      def read(_filename)
+        raise "must not download published artifacts for counts"
+      end
+    end.new
+    result = Indexmap::TaskRunner.new(configuration: configuration_with(storage: storage)).create
+    assert_equal [1, 1], result.fetch(:sitemaps).map { |file| file.fetch(:link_count) }
+  end
+
   private
 
   def configuration_with(storage: Indexmap::Storage::Memory.new)

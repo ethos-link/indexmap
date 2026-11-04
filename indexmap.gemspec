@@ -30,10 +30,10 @@ Gem::Specification.new do |spec|
   }
 
   spec.files = Dir.chdir(File.expand_path(__dir__)) do
-    allowed_prefixes = %w[lib/ test/].freeze
-    allowed_files = %w[CHANGELOG.md LICENSE.txt README.md].freeze
+    allowed_prefixes = %w[lib/ test/ docs/].freeze
+    allowed_files = %w[CHANGELOG.md LICENSE.txt README.md UPGRADE.md].freeze
     git_files = `git ls-files -z 2>/dev/null`.split("\x0")
-    candidate_files = git_files.empty? ? Dir.glob("{lib,test}/**/*", File::FNM_DOTMATCH) + allowed_files : git_files
+    candidate_files = git_files.empty? ? Dir.glob("{lib,test,docs}/**/*", File::FNM_DOTMATCH) + allowed_files : git_files
 
     candidate_files.select do |file|
       next false unless File.file?(file)

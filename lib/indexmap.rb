@@ -14,6 +14,7 @@ require_relative "indexmap/storage/memory"
 require_relative "indexmap/storage/filesystem"
 require_relative "indexmap/storage/active_storage"
 require_relative "indexmap/configuration"
+require_relative "indexmap/publication"
 require_relative "indexmap/creator"
 require_relative "indexmap/entry"
 require_relative "indexmap/output"
@@ -34,6 +35,7 @@ module Indexmap
 
   class ConfigurationError < Error; end
   class ValidationError < Error; end
+  class SupersededPublication < Error; end
 
   class << self
     def configuration

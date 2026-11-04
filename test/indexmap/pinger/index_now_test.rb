@@ -328,6 +328,38 @@ class IndexmapPingerIndexNowTest < Minitest::Test
     assert_not_requested(:post, "https://api.indexnow.org/indexnow")
   end
 
+  def test_retries_only_a_transient_failed_batch_and_reports_every_attempt
+    configuration = configuration_with(storage: sitemap_storage)
+    configuration.index_now.key = VALID_KEY
+    configuration.index_now.max_attempts = 3
+    configuration.index_now.max_wait = 0
+    configuration.index_now.max_urls_per_request = 1
+    request = stub_request(:post, "https://api.indexnow.org/indexnow")
+      .to_return(status: 200).then.to_return(status: 503).then.to_return(status: 200)
+    events = []
+    result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping { |event| events << event }
+    assert_equal :submitted, result.fetch(:status)
+    assert_equal 2, result.fetch(:url_count)
+    assert_requested request, times: 3
+    started = events.select { |event| event[:event] == :attempt_started }
+    assert_equal [1, 2, 2], started.map { |event| event.fetch(:batch) }
+    assert_equal [1, 1, 2], started.map { |event| event.fetch(:attempt) }
+  end
+
+  def test_does_not_retry_permanent_errors_or_shortcut_long_retry_after
+    [403, 429].each do |status|
+      configuration = configuration_with(storage: sitemap_storage)
+      configuration.index_now.key = VALID_KEY
+      configuration.index_now.max_attempts = 3
+      configuration.index_now.max_wait = 1
+      request = stub_request(:post, "https://api.indexnow.org/indexnow")
+        .to_return(status: status, headers: {"Retry-After" => "120"})
+      assert_equal :failed, Indexmap::Pinger::IndexNow.new(configuration: configuration).ping.fetch(:status)
+      assert_requested request, times: 1
+      WebMock.reset!
+    end
+  end
+
   private
 
   def with_env(overrides)

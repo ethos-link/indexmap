@@ -4,6 +4,9 @@ require "nokogiri"
 require "date"
 require "time"
 require "uri"
+require "tmpdir"
+require "stringio"
+require "json"
 
 module Indexmap
   class Validator
@@ -17,19 +20,44 @@ module Indexmap
       @filename = filename
     end
 
-    def validate!
+    def validate!(collect: true)
       sitemap_filename = filename || configuration.index_filename
       raise ValidationError, "Missing sitemap file: #{sitemap_filename}" unless storage.exist?(sitemap_filename)
 
-      @entries = validate_sitemap_files!(sitemap_filename)
-      validate_presence!(entries)
-      validate_duplicates!(entries)
-      validate_parameterized_urls!(entries)
-      validate_fragment_urls!(entries)
-      validate_absolute_http_urls!(entries)
-      validate_same_host_urls!(entries)
-      validate_lastmods!(entries)
+      @entries = []
+      count = 0
+      Dir.mktmpdir("indexmap-validation") do |directory|
+        duplicates = Duplicates.new(directory: directory)
+        validate_sitemap_files!(sitemap_filename) do |entry|
+          validate_parameterized_urls!([entry])
+          validate_fragment_urls!([entry])
+          validate_absolute_http_urls!([entry])
+          validate_same_host_urls!([entry])
+          validate_lastmods!([entry])
+          yield entry if block_given?
+          duplicates.add(entry.loc)
+          @entries << entry if collect
+          count += 1
+        end
+        duplicates.validate!
+      end
+      raise ValidationError, "Sitemap has no URLs" if count == 0
+
       true
+    end
+
+    def each_entry
+      return enum_for(:each_entry) unless block_given?
+
+      Dir.mktmpdir("indexmap-entries") do |directory|
+        path = File.join(directory, "entries.jsonl")
+        File.open(path, "wb") do |file|
+          validate!(collect: false) { |entry| file.puts(JSON.generate(entry.to_h)) }
+        end
+        File.foreach(path) do |line|
+          yield Parser::Entry.new(**JSON.parse(line, symbolize_names: true))
+        end
+      end
     end
 
     private
@@ -44,8 +72,6 @@ module Indexmap
       pending = [[sitemap_filename, false]]
       active = Set.new
       visited = Set.new
-      entries = []
-
       until pending.empty?
         name, leaving = pending.pop
         if leaving
@@ -58,73 +84,110 @@ module Indexmap
         active.add(name)
         visited.add(name)
         pending << [name, true]
-        document = read_xml_document(name)
-        case document.root&.name
-        when "urlset"
-          entries.concat(validate_urlset_document!(document, name))
-        when "sitemapindex"
-          validate_sitemap_index_document!(document, name).reverse_each { |child| pending << [child, false] }
-        else
-          raise ValidationError, "Invalid sitemap root element in #{name}: #{document.root&.name || "none"}"
-        end
+        children = read_sitemap(name) { |entry| yield entry }
+        children.reverse_each { |child| pending << [child, false] }
       end
-
-      entries
     end
 
-    def read_xml_document(filename)
-      body = storage.read(filename)
-      raise ValidationError, "Sitemap exceeds 52,428,800 bytes: #{filename}" if body.bytesize > MAX_BYTES
+    def read_sitemap(filename)
+      children = []
+      root = nil
+      count = 0
+      open_sitemap(filename) do |io|
+        reader = Nokogiri::XML::Reader.from_io(io, nil, nil, Nokogiri::XML::ParseOptions::NONET)
+        reader.each do |node|
+          if node.node_type == Nokogiri::XML::Reader::TYPE_DOCUMENT_TYPE
+            raise ValidationError, "Sitemap DTDs are not allowed: #{filename}"
+          end
+          next unless node.node_type == Nokogiri::XML::Reader::TYPE_ELEMENT
 
-      document = Nokogiri::XML(body) { |config| config.strict.nonet }
-      raise ValidationError, "Sitemap DTDs are not allowed: #{filename}" if document.internal_subset
-      if document.root && document.root.namespace&.href != "http://www.sitemaps.org/schemas/sitemap/0.9"
-        raise ValidationError, "Invalid sitemap namespace: #{filename}"
+          if node.depth == 0
+            root = node.local_name
+            unless %w[urlset sitemapindex].include?(root)
+              raise ValidationError, "Invalid sitemap root element in #{filename}: #{root}"
+            end
+            unless node.namespace_uri == "http://www.sitemaps.org/schemas/sitemap/0.9"
+              raise ValidationError, "Invalid sitemap namespace: #{filename}"
+            end
+          elsif node.depth == 1 && node.local_name == ((root == "urlset") ? "url" : "sitemap")
+            count += 1
+            raise ValidationError, "Sitemap exceeds 50,000 entries: #{filename}" if count > MAX_ENTRIES
+
+            fields = read_fields(reader)
+            location = location_for(fields, filename: filename)
+            if root == "urlset"
+              lastmod = fields.fetch("lastmod").to_s.strip
+              yield Parser::Entry.new(loc: location, lastmod: lastmod.empty? ? nil : lastmod, source_sitemap: filename)
+            else
+              child = local_child_filename(location, parent_filename: filename)
+              children << child
+            end
+          end
+        end
       end
-
-      document.remove_namespaces!
-      document
+      if count == 0
+        message = (root == "sitemapindex") ? "Sitemap index has no child sitemap URLs" : "Sitemap has no URLs"
+        raise ValidationError, "#{message}: #{filename}"
+      end
+      children.each { |child| raise ValidationError, "Missing child sitemap file: #{child}" unless storage.exist?(child) }
+      if children.uniq.size != children.size
+        raise ValidationError, "Duplicate child sitemap URLs detected: #{filename}"
+      end
+      children
     rescue Nokogiri::XML::SyntaxError => error
       raise ValidationError, "Invalid sitemap XML in #{filename}: #{error.message.lines.first.strip}"
     end
 
-    def validate_urlset_document!(document, sitemap_filename)
-      urls = document.xpath("/urlset/url")
-      raise ValidationError, "Sitemap exceeds 50,000 entries: #{sitemap_filename}" if urls.size > MAX_ENTRIES
-      raise ValidationError, "Sitemap has no URLs: #{sitemap_filename}" if urls.empty?
+    def open_sitemap(filename, &block)
+      if storage.respond_to?(:open) && storage.respond_to?(:metadata)
+        if storage.metadata(filename).fetch(:bytes) > MAX_BYTES
+          raise ValidationError, "Sitemap exceeds 52,428,800 bytes: #{filename}"
+        end
+        storage.open(filename, &block)
+      else
+        body = storage.read(filename)
+        raise ValidationError, "Sitemap exceeds 52,428,800 bytes: #{filename}" if body.bytesize > MAX_BYTES
 
-      urls.map do |url|
-        lastmod = url.at_xpath("lastmod")&.text.to_s.strip
-        Parser::Entry.new(loc: location_for(url, filename: sitemap_filename), lastmod: lastmod.empty? ? nil : lastmod, source_sitemap: sitemap_filename)
+        yield StringIO.new(body)
       end
     end
 
-    def validate_sitemap_index_document!(document, sitemap_filename)
-      if document.xpath("/sitemapindex/sitemap").size > MAX_ENTRIES
-        raise ValidationError, "Sitemap exceeds 50,000 entries: #{sitemap_filename}"
-      end
-      child_locations = document.xpath("/sitemapindex/sitemap").map { |node| location_for(node, filename: sitemap_filename) }
-      raise ValidationError, "Sitemap index has no child sitemap URLs: #{sitemap_filename}" if child_locations.empty?
+    def read_fields(reader)
+      fields = {"loc" => nil, "lastmod" => nil}
+      return fields if reader.self_closing?
 
-      duplicate_children = child_locations.group_by(&:itself).select { |_loc, values| values.size > 1 }.keys
-      unless duplicate_children.empty?
-        raise ValidationError, "Duplicate child sitemap URLs detected: #{duplicate_children.first(5).join(", ")}"
-      end
+      text = nil
+      while reader.read
+        type = reader.node_type
+        if type == Nokogiri::XML::Reader::TYPE_END_ELEMENT
+          break if reader.depth == 1
 
-      child_locations.map do |location|
-        child_filename = local_child_filename(location, parent_filename: sitemap_filename)
-        raise ValidationError, "Missing child sitemap file: #{child_filename}" unless storage.exist?(child_filename)
+          text = nil if reader.depth == 2
+        elsif type == Nokogiri::XML::Reader::TYPE_ELEMENT && reader.depth == 2
+          name = reader.local_name
+          if fields.key?(name)
+            raise ValidationError, "Repeated sitemap field: #{name}" if fields[name]
 
-        child_filename
+            fields[name] = +""
+            text = reader.self_closing? ? nil : fields[name]
+          else
+            text = nil
+          end
+        elsif text && [Nokogiri::XML::Reader::TYPE_TEXT, Nokogiri::XML::Reader::TYPE_CDATA,
+          Nokogiri::XML::Reader::TYPE_WHITESPACE, Nokogiri::XML::Reader::TYPE_SIGNIFICANT_WHITESPACE].include?(type)
+          text << reader.value
+        end
       end
+      fields
     end
 
-    def location_for(node, filename:)
-      locations = node.xpath("loc")
-      location = locations.first&.text.to_s.strip
-      if locations.size != 1 || location.empty?
+    def location_for(fields, filename:)
+      location = fields.fetch("loc").to_s.strip
+      if location.empty?
         raise ValidationError, "Sitemap entry must have one nonempty loc: #{filename}"
       end
+      raise ValidationError, "Sitemap loc must be shorter than 2,048 characters: #{filename}" if location.length >= 2048
+
       location
     end
 
@@ -155,19 +218,6 @@ module Indexmap
       normalized
     end
 
-    def validate_presence!(entries)
-      return unless entries.empty?
-
-      raise ValidationError, "Sitemap has no URLs"
-    end
-
-    def validate_duplicates!(entries)
-      duplicates = entries.map(&:loc).group_by(&:itself).select { |_url, values| values.size > 1 }.keys
-      return if duplicates.empty?
-
-      raise ValidationError, "Duplicate sitemap URLs detected: #{duplicates.first(5).join(", ")}"
-    end
-
     def validate_parameterized_urls!(entries)
       param_urls = entries.map(&:loc).select { |url| url&.include?("?") }
       return if param_urls.empty?
@@ -185,7 +235,7 @@ module Indexmap
     def validate_absolute_http_urls!(entries)
       invalid_urls = entries.map(&:loc).reject do |url|
         uri = parse_uri(url)
-        uri&.absolute? && %w[http https].include?(uri.scheme)
+        uri&.absolute? && %w[http https].include?(uri.scheme) && uri.host && !uri.userinfo
       end
       return if invalid_urls.empty?
 
@@ -230,3 +280,5 @@ module Indexmap
     end
   end
 end
+
+require_relative "validator/duplicates"

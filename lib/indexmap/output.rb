@@ -4,6 +4,8 @@ module Indexmap
   class Output
     VALID_FORMATS = %i[index single_file].freeze
 
+    attr_writer :atomic, :max_urls, :max_bytes
+
     attr_writer :base_url, :entries, :format, :index_filename, :sections
 
     def initialize(configuration:)
@@ -17,7 +19,8 @@ module Indexmap
     def entries
       resolved_entries = resolve(@entries)
 
-      Array(resolved_entries.nil? ? configuration.entries : resolved_entries)
+      value = resolved_entries.nil? ? configuration.entries : resolved_entries
+      value.is_a?(Enumerable) ? value : Array(value)
     end
 
     def format
@@ -39,7 +42,11 @@ module Indexmap
       Array(resolved_sections.nil? ? configuration.sections : resolved_sections)
     end
 
-    def writer
+    def atomic
+      @atomic.nil? ? configuration.atomic == true : @atomic == true
+    end
+
+    def writer(generation: nil)
       base_url = self.base_url
       format = self.format
       raise ConfigurationError, "Indexmap base_url is not configured" if base_url.to_s.strip.empty?
@@ -50,7 +57,7 @@ module Indexmap
 
       if format == :single_file
         entries = self.entries
-        raise ConfigurationError, "Indexmap entries are not configured" if entries.empty?
+        raise ConfigurationError, "Indexmap entries are not configured" if entries.is_a?(Array) && entries.empty?
       else
         sections = self.sections
         raise ConfigurationError, "Indexmap sections are not configured" if sections.empty?
@@ -61,7 +68,10 @@ module Indexmap
         format: format,
         sections: sections,
         base_url: base_url,
-        index_filename: index_filename
+        index_filename: index_filename,
+        max_urls: @max_urls || configuration.max_urls || Validator::MAX_ENTRIES,
+        max_bytes: @max_bytes || configuration.max_bytes || Validator::MAX_BYTES,
+        generation: generation
       )
     end
 

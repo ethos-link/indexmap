@@ -1,0 +1,74 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "bundler/setup"
+require "tmpdir"
+require "rbconfig"
+require "uri"
+
+root = File.expand_path("..", __dir__)
+url = ENV.fetch("INDEXMAP_DATABASE_URL")
+abort "Integration requires a disposable indexmap_test database" unless URI.parse(url).path == "/indexmap_test"
+ENV["DATABASE_URL"] = url
+ENV["RAILS_ENV"] = "test"
+ENV["SECRET_KEY_BASE_DUMMY"] = "1"
+ENV["GOOD_JOB_EXECUTION_MODE"] = "external"
+ENV["BUNDLE_GEMFILE"] = File.join(root, "gemfiles/integration.gemfile")
+
+def run(*command, directory: nil)
+  options = directory ? {chdir: directory} : {}
+  raise "Command failed: #{command.first(3).join(" ")}" unless system(*command, **options)
+end
+
+Dir.mktmpdir("indexmap-integration") do |directory|
+  app = File.join(directory, "crawler_test")
+  rails = [RbConfig.ruby, Gem.bin_path("railties", "rails")]
+  run(*rails, "new", app, "--skip-bundle", "--skip-git", "--skip-docker", "--skip-javascript",
+    "--skip-hotwire", "--skip-asset-pipeline", "--skip-bootsnap", "--skip-dev-gems", "--skip-thruster",
+    "--skip-rubocop", "--skip-brakeman", "--skip-bundler-audit", "--skip-ci", "--skip-kamal",
+    "--skip-solid", "--skip-jbuilder", "--skip-test", "--skip-system-test", "--database=postgresql", "--quiet")
+  command = [RbConfig.ruby, File.join(app, "bin/rails")]
+  run(*command, "active_storage:install", directory: app)
+  run(*command, "solid_queue:install", directory: app)
+  %w[good_job:install indexmap:install].each do |generator|
+    run(*command, "generate", generator, "--quiet", directory: app)
+  end
+  run(*command, "generate", "model", "SitemapArtifact", "filename:string:uniq", "--quiet", directory: app)
+  run(*command, "generate", "model", "PublicPage", "slug:string", "published:boolean", "--quiet", directory: app)
+  run(*command, "generate", "job", "IntegrationRefresh", "--quiet", directory: app)
+  model_path = File.join(app, "app/models/sitemap_artifact.rb")
+  File.write(model_path, File.read(model_path).sub("< ApplicationRecord", "< ApplicationRecord\n  has_one_attached :file"))
+  File.write(File.join(app, "app/jobs/integration_refresh_job.rb"), <<~CODE)
+    class IntegrationRefreshJob < ApplicationJob
+      def perform
+        IndexmapConfiguration.apply
+        Indexmap::TaskRunner.new.create
+      end
+    end
+  CODE
+  ENV["INDEXMAP_PATH"] = File.join(directory, "sitemaps")
+  File.write(File.join(app, "config/initializers/indexmap.rb"), <<~CODE)
+    module IndexmapConfiguration
+      def self.apply
+        require "indexmap"
+        Indexmap.configure do |config|
+          config.base_url = "https://example.com"
+          config.atomic = true
+          config.max_urls = 2
+          config.storage = Indexmap::Storage::Filesystem.new(path: ENV.fetch("INDEXMAP_PATH"))
+          config.sections = -> do
+            entries = PublicPage.where(published: true).find_each.lazy.map do |page|
+              Indexmap::Entry.new(loc: "https://example.com/" + page.slug, lastmod: page.updated_at)
+            end
+            [Indexmap::Section.new(filename: "sitemap-pages.xml", entries: entries)]
+          end
+        end
+      end
+    end
+    ActiveJob::Base.queue_adapter = ENV.fetch("INDEXMAP_ADAPTER", "good_job").to_sym
+    Rails.application.config.active_storage.service = :test
+  CODE
+  run(*command, "db:drop", "db:create", "db:migrate", directory: app)
+  run(*command, "runner", "load Rails.root.join('db/queue_schema.rb')", directory: app)
+  run(*command, "runner", File.join(root, "test/integration/queue_checks.rb"), directory: app)
+end

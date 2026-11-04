@@ -4,6 +4,8 @@ module Indexmap
   class Configuration
     VALID_FORMATS = %i[index single_file].freeze
 
+    attr_accessor :atomic, :max_urls, :max_bytes
+
     attr_writer :base_url, :entries, :format, :index_filename, :sections, :storage
 
     def initialize
@@ -18,7 +20,8 @@ module Indexmap
     end
 
     def entries
-      Array(resolve(@entries))
+      value = resolve(@entries)
+      value.is_a?(Enumerable) ? value : Array(value)
     end
 
     def format
@@ -48,6 +51,10 @@ module Indexmap
 
     def sections
       Array(resolve(@sections))
+    end
+
+    def output_names
+      [:default, *@outputs.keys].uniq
     end
 
     def output(name)

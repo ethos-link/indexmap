@@ -5,6 +5,8 @@ module Indexmap
     DEFAULT_ENDPOINT = "https://api.indexnow.org"
     DEFAULT_MAX_URLS_PER_REQUEST = 500
 
+    attr_accessor :max_attempts, :max_wait
+
     attr_writer :dry_run, :endpoint, :key, :key_filename, :max_urls_per_request, :write_key_file
 
     def dry_run?

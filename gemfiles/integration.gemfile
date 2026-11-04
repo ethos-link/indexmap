@@ -1,0 +1,9 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+gemspec path: ".."
+
+gem "rails", "8.1.4"
+gem "good_job", "4.22.1"
+gem "solid_queue", "1.7.0"
+gem "pg", "~> 1.6"
