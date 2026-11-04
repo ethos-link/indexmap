@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-11-04
+
+
+### Added
+
+- validate and expose public crawler output
+
+- validate and expose public crawler output ([#21](https://github.com/ethos-link/indexmap/pull/21))
+
+- stream and atomically publish dynamic inventories
+
+- stream and atomically publish dynamic inventories ([#23](https://github.com/ethos-link/indexmap/pull/23))
+
+
+
+
+### Changed
+
+- reconcile writer branch with merged sitemap fixes
+
+- synchronize publication branch with resolved writer base
+
+
+
+
+### Documentation
+
+- explain background sitemap generation ([#19](https://github.com/ethos-link/indexmap/pull/19))
+
+- explain public key setup in Rails ([#20](https://github.com/ethos-link/indexmap/pull/20))
+
+- clarify usage limits and implementation status
+
+- clarify retries are disabled by default
+
+- document unreleased APIs and sitemap deployment choices
+
+
+
+
+### Fixed
+
+- consume sitemap section entries once
+
+- consume sitemap section entries once ([#22](https://github.com/ethos-link/indexmap/pull/22))
+
+- separate review preparation from release tagging
+
+- prepare and push releases from main
+
+- install git-cliff before running release tests
+
+- prepare and push releases from main ([#25](https://github.com/ethos-link/indexmap/pull/25))
+
+
+
+
+### fix
+
+- harden publication and Rails task loading
+
+- harden sitemap publication and Rails integration ([#24](https://github.com/ethos-link/indexmap/pull/24))
+
+
+
 ## [0.8.2] - 2026-07-22
 
 
