@@ -38,6 +38,10 @@ module Indexmap
       @index_now ||= IndexNowConfiguration.new
     end
 
+    def robots
+      @robots ||= Robots.new(configuration: self)
+    end
+
     def storage
       resolve(@storage) || Storage::Filesystem.new(path: "public", public_url: base_url)
     end

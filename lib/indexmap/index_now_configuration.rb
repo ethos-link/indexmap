@@ -40,7 +40,7 @@ module Indexmap
       value = resolve(@max_urls_per_request)
       return DEFAULT_MAX_URLS_PER_REQUEST if value.nil?
 
-      value.to_i
+      Integer(value.to_s, 10)
     end
 
     private

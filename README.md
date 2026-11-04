@@ -228,6 +228,43 @@ Use storage shared by all serving containers, such as object storage through
 the Active Storage adapter. A job container's local filesystem is not shared
 with web containers unless the deployment mounts the same persistent storage.
 
+### Dynamic Robots
+
+Indexmap can serve `/robots.txt` from configuration without querying content or
+reading sitemap storage. Crawling defaults to disabled. Inside the generated
+`Indexmap.configure` block, configure the site's policy:
+
+```ruby
+config.robots.indexable = -> { Rails.env.production? && ENV["PUBLIC_INDEXING"] == "1" }
+config.robots.groups = [
+  {user_agent: "*", allow: ["/"], disallow: ["/admin/", "/search"]}
+]
+```
+
+The sitemap URL defaults to `base_url` plus `index_filename`. Override it with
+`config.robots.sitemaps = ["https://example.com/sitemap.xml"]` when needed.
+Groups and sitemap lists also accept callables. Keep them configuration-only;
+do not query models in these callables.
+
+In the application's `config/routes.rb`, load and mount the endpoint explicitly:
+
+```ruby
+require "indexmap/robots_controller"
+IndexmapConfiguration.apply
+
+Rails.application.routes.draw do
+  get "/robots.txt", to: Indexmap::RobotsController.action(:show)
+end
+```
+
+If the configuration loader lives outside an initializer, require that file
+before applying it. Remove `public/robots.txt` so it cannot shadow the route.
+The controller supports GET, HEAD, and conditional requests, uses a one-hour
+public cache, and does not inherit application authentication or browser gates.
+Set `PUBLIC_INDEXING` only for the intended public deployment; production-mode
+previews should remain disabled. Robots rules do not replace authorization or
+page-level indexing directives.
+
 ### Default Index Mode
 
 This is the default behavior. `indexmap` writes:

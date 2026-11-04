@@ -22,13 +22,14 @@ module Indexmap
           return {status: :skipped, reason: :missing_key}
         end
 
+        batch_size = max_urls_per_request
         entries = entries_to_ping
         if entries.empty?
           logger.debug("IndexNow: no URLs matched the current filter.")
           return {status: :skipped, reason: :no_urls}
         end
 
-        results = entries.each_slice(max_urls_per_request).map do |batch|
+        results = entries.each_slice(batch_size).map.with_index(1) do |batch, number|
           urls = batch.map(&:loc)
 
           if dry_run?
@@ -36,10 +37,36 @@ module Indexmap
             next({status: :dry_run, url_count: urls.count})
           end
 
-          submit_batch(api_key: api_key, urls: urls)
+          yield({event: :attempt_started, batch: number, urls: urls}) if block_given?
+          result = submit_batch(api_key: api_key, urls: urls)
+          yield(result.merge(event: :attempt_finished, batch: number, urls: urls)) if block_given?
+          result
         end
 
         summarize_results(results)
+      end
+
+      def plan
+        return enum_for(:plan) unless block_given?
+
+        cutoff = since_cutoff
+        batch_size = max_urls_per_request
+        missing_key = read_api_key.nil?
+        selected_count = 0
+        each_selection(cutoff: cutoff) do |entry, reason, selected|
+          selected_count += 1 if selected
+          yield({
+            loc: entry.loc,
+            lastmod: entry.lastmod,
+            source_sitemap: entry.source_sitemap,
+            index_filename: configuration.index_filename,
+            cutoff: cutoff&.iso8601,
+            reason: reason,
+            selected: selected,
+            batch: selected ? ((selected_count - 1) / batch_size) + 1 : nil,
+            missing_key: missing_key
+          })
+        end
       end
 
       def write_key_file(key: index_now_configuration.key, filename: nil)
@@ -72,34 +99,30 @@ module Indexmap
         configuration.index_now
       end
 
-      def sitemap_files
-        files = super
-        return files if files.one?
-
-        child_files = files.reject { |file| file == configuration.index_filename }
-        child_files.empty? ? files : child_files
-      end
-
       def entries_to_ping
         cutoff = since_cutoff
-        unless cutoff
-          logger.debug("IndexNow: no cutoff provided, submitting all sitemap URLs.")
-          return current_entries.values
+        entries = []
+        each_selection(cutoff: cutoff) do |entry, _reason, selected|
+          entries << entry if selected
         end
-
-        logger.debug { "IndexNow: submitting sitemap URLs with lastmod >= #{cutoff.iso8601}." }
-
-        current_entries.values.select do |entry|
-          lastmod_after_cutoff?(entry, cutoff) || entry.lastmod.to_s.strip.empty?
-        end
+        entries
       end
 
-      def current_entries
-        sitemap_files.each_with_object({}) do |sitemap_file, entries|
-          Parser.new(source: sitemap_file, storage: storage).entries.each do |entry|
-            next if entry.loc.to_s.strip.empty?
-
-            entries[entry.loc] = entry
+      def each_selection(cutoff:)
+        sitemap_files.each do |filename|
+          validator = Validator.new(configuration: configuration, filename: filename)
+          validator.validate!
+          validator.entries.each do |entry|
+            reason = if cutoff.nil?
+              :all
+            elsif entry.lastmod.to_s.strip.empty?
+              :missing_lastmod
+            elsif lastmod_after_cutoff?(entry, cutoff)
+              :recent
+            else
+              :before_cutoff
+            end
+            yield entry, reason, reason != :before_cutoff
           end
         end
       end
@@ -126,23 +149,20 @@ module Indexmap
       end
 
       def lastmod_after_cutoff?(entry, cutoff)
-        lastmod = entry_lastmod(entry)
-        return false unless lastmod
-
-        lastmod >= cutoff
-      end
-
-      def entry_lastmod(entry)
-        return if entry.lastmod.to_s.strip.empty?
-
-        Time.iso8601(entry.lastmod.to_s).utc
-      rescue ArgumentError
-        logger.debug { "IndexNow: skipping invalid sitemap lastmod #{entry.lastmod.inspect} for #{entry.loc}" }
-        nil
+        if entry.lastmod.to_s.match?(/\A\d{4}-\d{2}-\d{2}\z/)
+          Date.iso8601(entry.lastmod) >= cutoff.to_date
+        else
+          Time.iso8601(entry.lastmod).utc >= cutoff
+        end
       end
 
       def max_urls_per_request
-        ENV.fetch("INDEXNOW_MAX_URLS_PER_REQUEST", index_now_configuration.max_urls_per_request).to_i
+        value = ENV.fetch("INDEXNOW_MAX_URLS_PER_REQUEST") { index_now_configuration.max_urls_per_request }
+        size = Integer(value.to_s, 10, exception: false)
+        unless size && (1..10_000).cover?(size)
+          raise ConfigurationError, "IndexNow batch size must be an integer from 1 through 10,000"
+        end
+        size
       end
 
       def submit_batch(api_key:, urls:)
@@ -157,15 +177,21 @@ module Indexmap
 
         if response.success?
           logger.debug { "Successfully pinged IndexNow with #{urls.count} URLs." }
-          {status: :submitted, url_count: urls.count}
+          {status: :submitted, url_count: urls.count, status_code: response.status,
+           receipt: (response.status == 202) ? :validation_pending : :received}
         else
-          logger.debug { "Failed to ping IndexNow. Status: #{response.status}, Body: #{response.body}" }
-          {status: :failed, url_count: urls.count, status_code: response.status, body: response.body}
+          logger.debug { "Failed to ping IndexNow. Status: #{response.status}" }
+          {status: :failed, url_count: urls.count, status_code: response.status,
+           body: response.body.to_s.gsub(api_key, "[FILTERED]").slice(0, 1024)}
         end
+      rescue Faraday::TimeoutError, Faraday::ConnectionFailed
+        {status: :failed, url_count: urls.count, reason: :unknown_delivery}
       end
 
       def index_now_connection
         @index_now_connection ||= connection || Faraday.new(url: index_now_configuration.endpoint) do |faraday|
+          faraday.options.open_timeout = 5
+          faraday.options.timeout = 20
           faraday.request :json
         end
       end

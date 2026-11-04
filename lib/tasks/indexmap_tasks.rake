@@ -56,9 +56,21 @@ namespace :indexmap do
   end
 
   namespace :index_now do
+    desc "Preview exact IndexNow selection as JSON Lines without submitting"
+    task plan: :environment do
+      Indexmap::Pinger::IndexNow.new.plan.each { |row| puts JSON.generate(row) }
+    end
+
     desc "Ping IndexNow. ENV: SINCE=2026-04-18T10:30:00Z or INDEXNOW_RECENT_HOURS=24"
     task ping: :environment do
-      result = Indexmap::Pinger::IndexNow.new.ping
+      report = ENV["INDEXNOW_REPORT"] == "1"
+      result = Indexmap::Pinger::IndexNow.new.ping do |event|
+        puts JSON.generate(event) if report
+      end
+      if report
+        puts JSON.generate(result.merge(event: :summary))
+        next
+      end
 
       case result[:status]
       when :submitted

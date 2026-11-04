@@ -40,6 +40,8 @@ module Indexmap
     end
 
     def writer
+      base_url = self.base_url
+      format = self.format
       raise ConfigurationError, "Indexmap base_url is not configured" if base_url.to_s.strip.empty?
 
       unless VALID_FORMATS.include?(format)
@@ -47,8 +49,10 @@ module Indexmap
       end
 
       if format == :single_file
+        entries = self.entries
         raise ConfigurationError, "Indexmap entries are not configured" if entries.empty?
-      elsif sections.empty?
+      else
+        sections = self.sections
         raise ConfigurationError, "Indexmap sections are not configured" if sections.empty?
       end
 
