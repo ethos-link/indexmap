@@ -279,7 +279,7 @@ receipt `received`. Neither proves crawling or indexing. Dry runs emit only a
 summary because they make no attempts.
 
 Timeouts and connection failures produce a failed batch with reason
-`unknown_delivery`. Earlier successful batches remain in the summary. There are
+`unknown_delivery`. Earlier successful batches remain in the summary. There are no
 automatic retries by default. Requests use a five-second connection timeout and
 a 20-second request timeout. API keys are omitted from reports.
 
