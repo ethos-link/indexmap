@@ -249,6 +249,51 @@ fetch the public file. After those checks, run
 
 ### Ping IndexNow
 
+#### Inspect selection and actual attempts
+
+Preview the exact selection without submitting or requiring a key:
+
+```bash
+SINCE=2026-04-18T10:30:00Z bin/rails indexmap:index_now:plan
+```
+
+The task writes one JSON object per URL, including excluded URLs. Each row has
+`loc`, `lastmod`, `source_sitemap`, `index_filename`, the resolved UTC `cutoff`,
+`selected`, `reason`, the selected `batch` number, and `missing_key`. Reasons are
+`all`, `recent`, `missing_lastmod`, and `before_cutoff`. An empty root discovery
+produces no rows. Invalid reachable sitemaps raise before selection or sending.
+Planning reads configured storage only; it makes no network requests or writes.
+
+To record which URLs a real submission attempts, use:
+
+```bash
+INDEXNOW_REPORT=1 bin/rails indexmap:index_now:ping > /private/operator-path/indexnow-attempts.jsonl
+```
+
+Use an existing private destination outside `public/` and sitemap storage.
+The report replaces the task's human-readable output with JSON Lines:
+`attempt_started` contains the batch number and exact `urls`; `attempt_finished`
+adds its status and HTTP receipt; `summary` retains the normal result totals.
+HTTP 202 has receipt `validation_pending`; other successful HTTP responses have
+receipt `received`. Neither proves crawling or indexing. Dry runs emit only a
+summary because they make no attempts.
+
+Timeouts and connection failures produce a failed batch with reason
+`unknown_delivery`. Earlier successful batches remain in the summary. There are
+no automatic retries. Requests use a five-second connection timeout and a
+20-second request timeout. API keys are omitted from reports.
+
+Exports are not a durable ledger. A preview and a later submission can differ
+when files or configuration change. An attempt-started record proves local
+intent, not remote receipt; a crash or timeout can leave delivery uncertain.
+Retain reports yourself if historical visibility is required.
+
+Ruby callers can use `pinger.plan.each` for selection rows and
+`pinger.ping { |event| ... }` for attempt events without retaining another URL
+inventory. Exceptions raised by the reporting block propagate to the caller.
+
+#### Submit selected URLs
+
 Run:
 
 ```bash
@@ -270,6 +315,13 @@ the submission to recently changed sitemap entries, set one of:
 SINCE=2026-04-18T10:30:00Z bin/rails indexmap:index_now:ping
 INDEXNOW_RECENT_HOURS=24 bin/rails indexmap:index_now:ping
 ```
+
+`SINCE` takes precedence; invalid values raise rather than falling back. Date-only
+`lastmod` values are compared to the cutoff's UTC calendar date, including that
+whole day. Missing dates are always included, so this filter is not a precise
+content-change detector. Batch sizes default to 500 and must be integers from
+1 through 10,000, configured with `config.index_now.max_urls_per_request` or
+`INDEXNOW_MAX_URLS_PER_REQUEST`.
 
 If the task says the key is missing, either configure `config.index_now.key` or
 run `indexmap:index_now:write_key` and deploy the generated key file. If a key

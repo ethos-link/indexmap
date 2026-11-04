@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "indexmap/tasks"
 
 class IndexmapPingerIndexNowTest < Minitest::Test
   VALID_KEY = "1234567890abcdef1234567890abcdef"
@@ -205,6 +206,126 @@ class IndexmapPingerIndexNowTest < Minitest::Test
     filename = Indexmap::Pinger::IndexNow.new(configuration: configuration).ensure_key_file
 
     assert_equal "00000000000000000000000000000000.txt", filename
+  end
+
+  def test_date_only_lastmods_include_the_cutoff_day
+    configuration = configuration_with(storage: sitemap_storage(
+      marketing_lastmod: "2026-04-18", insights_lastmod: "2026-04-17"
+    ))
+    configuration.index_now.key = VALID_KEY
+    configuration.index_now.dry_run = true
+
+    with_env("SINCE" => "2026-04-18T23:59:59Z") do
+      assert_equal 1, Indexmap::Pinger::IndexNow.new(configuration: configuration).ping.fetch(:url_count)
+    end
+  end
+
+  def test_rejects_invalid_batch_sizes_before_sending
+    configuration = configuration_with(storage: sitemap_storage)
+    configuration.index_now.key = VALID_KEY
+    %w[0 -1 invalid 1.5 10001].each do |value|
+      with_env("INDEXNOW_MAX_URLS_PER_REQUEST" => value) do
+        assert_raises(Indexmap::ConfigurationError) do
+          Indexmap::Pinger::IndexNow.new(configuration: configuration).ping
+        end
+      end
+    end
+    assert_not_requested(:post, "https://api.indexnow.org/indexnow")
+  end
+
+  def test_invalid_since_does_not_fall_back_to_recent_hours
+    configuration = configuration_with(storage: sitemap_storage)
+    configuration.index_now.key = VALID_KEY
+    with_env("SINCE" => "invalid", "INDEXNOW_RECENT_HOURS" => "24") do
+      assert_raises(ArgumentError) { Indexmap::Pinger::IndexNow.new(configuration: configuration).ping }
+    end
+  end
+
+  def test_plan_without_a_key_reports_exact_selection_and_exclusions
+    configuration = configuration_with(storage: sitemap_storage)
+    with_env("SINCE" => "2026-04-15T00:00:00Z") do
+      rows = Indexmap::Pinger::IndexNow.new(configuration: configuration).plan.to_a
+      assert_equal 2, rows.size
+      selected = rows.find { |row| row.fetch(:selected) }
+      assert_equal "https://www.example.com/pages/features", selected.fetch(:loc)
+      assert_equal "sitemap-marketing.xml", selected.fetch(:source_sitemap)
+      assert_equal :recent, selected.fetch(:reason)
+      assert_equal 1, selected.fetch(:batch)
+      assert selected.fetch(:missing_key)
+      assert_equal :before_cutoff, rows.find { |row| !row.fetch(:selected) }.fetch(:reason)
+    end
+    assert_not_requested(:post, "https://api.indexnow.org/indexnow")
+  end
+
+  def test_plan_matches_submitted_batches_and_explains_undated_entries
+    configuration = configuration_with(storage: sitemap_storage(marketing_lastmod: ""))
+    configuration.index_now.key = VALID_KEY
+    configuration.index_now.max_urls_per_request = 1
+    stub_request(:post, "https://api.indexnow.org/indexnow").to_return(status: 200)
+    with_env("SINCE" => "2026-04-15T00:00:00Z") do
+      pinger = Indexmap::Pinger::IndexNow.new(configuration: configuration)
+      rows = pinger.plan.select { |row| row.fetch(:selected) }
+      assert_equal :missing_lastmod, rows.first.fetch(:reason)
+      events = []
+      pinger.ping { |event| events << event }
+      assert_equal rows.map { |row| row.fetch(:loc) }, events.select { |event| event[:event] == :attempt_started }.flat_map { |event| event[:urls] }
+      refute_includes events.to_json, VALID_KEY
+    end
+  end
+
+  def test_transport_failure_preserves_earlier_receipts_and_reports_uncertainty
+    configuration = configuration_with(storage: sitemap_storage)
+    configuration.index_now.key = VALID_KEY
+    configuration.index_now.max_urls_per_request = 1
+    stub_request(:post, "https://api.indexnow.org/indexnow")
+      .to_return(status: 202).then.to_timeout
+    events = []
+    result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping { |event| events << event }
+    assert_equal :partial, result.fetch(:status)
+    assert_equal 1, result.fetch(:url_count)
+    assert_equal :unknown_delivery, result.fetch(:failures).first.fetch(:reason)
+    receipts = events.select { |event| event[:event] == :attempt_finished }
+    assert_equal 202, receipts.first.fetch(:status_code)
+    assert_equal :validation_pending, receipts.first.fetch(:receipt)
+    assert_equal :unknown_delivery, receipts.last.fetch(:reason)
+  end
+
+  def test_plan_task_exports_json_lines_without_sending
+    configuration = configuration_with(storage: sitemap_storage)
+    Rake::Task.define_task(:environment)
+    task = Rake::Task["indexmap:index_now:plan"]
+    task.reenable
+    output, = Indexmap.stub(:configuration, configuration) { capture_io { task.invoke } }
+    rows = output.lines.map { |line| JSON.parse(line) }
+    assert_equal 2, rows.size
+    assert rows.all? { |row| row.fetch("selected") && row.fetch("missing_key") }
+    assert_not_requested(:post, "https://api.indexnow.org/indexnow")
+  end
+
+  def test_ping_task_report_contains_exact_attempts_and_a_summary
+    configuration = configuration_with(storage: sitemap_storage)
+    configuration.index_now.key = VALID_KEY
+    stub_request(:post, "https://api.indexnow.org/indexnow").to_return(status: 200)
+    Rake::Task.define_task(:environment)
+    task = Rake::Task["indexmap:index_now:ping"]
+    task.reenable
+    with_env("INDEXNOW_REPORT" => "1") do
+      output, = Indexmap.stub(:configuration, configuration) { capture_io { task.invoke } }
+      events = output.lines.map { |line| JSON.parse(line) }
+      assert_equal %w[attempt_started attempt_finished summary], events.map { |event| event.fetch("event") }
+      assert_equal 2, events.first.fetch("urls").size
+      assert_equal "received", events[1].fetch("receipt")
+      assert_equal "submitted", events.last.fetch("status")
+      refute_includes output, VALID_KEY
+    end
+  end
+
+  def test_invalid_sitemap_fails_before_any_submission
+    configuration = configuration_with(storage: sitemap_storage)
+    configuration.index_now.key = VALID_KEY
+    configuration.storage.write("sitemap-insights.xml", '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://private.example/secret</loc></url></urlset>')
+    assert_raises(Indexmap::ValidationError) { Indexmap::Pinger::IndexNow.new(configuration: configuration).ping }
+    assert_not_requested(:post, "https://api.indexnow.org/indexnow")
   end
 
   private

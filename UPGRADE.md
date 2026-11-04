@@ -5,6 +5,43 @@ or pings sitemaps with `indexmap`.
 
 ## Unreleased
 
+Sitemap validation now rejects files larger than 52,428,800 uncompressed bytes,
+URL sets and indexes with more than 50,000 entries, missing or incorrect sitemap
+namespaces, DTDs, missing URL locations, cyclic indexes, unsafe child paths, and
+child URLs outside the configured scheme, host, or port. Relative local child
+references remain supported. Fix invalid existing files before upgrading.
+Generation still validates before publication; sequential storage writes do not
+provide atomic publication of the entire sitemap set.
+
+IndexNow now validates the reachable sitemap before planning or sending. Duplicate
+or otherwise invalid entries fail validation instead of being silently filtered.
+Split oversized sitemaps in the application's manifest; automatic partitioning is
+not included in this change.
+
+Date-only `lastmod` values now participate in IndexNow cutoff selection. Dates on
+or after the cutoff's UTC calendar day are included, even when the cutoff has a
+later time on that day. Missing dates remain included. Invalid `SINCE` still
+raises and does not fall back to `INDEXNOW_RECENT_HOURS`. Batch sizes must be
+integers from 1 through 10,000; malformed configuration is no longer truncated.
+
+The new `indexmap:index_now:plan` task exports selection as JSON Lines without a
+key or network submission. Existing dry runs still require a key. Set
+`INDEXNOW_REPORT=1` on the ping task for JSON Lines containing attempt-started,
+attempt-finished, and summary records. These are non-durable exports: save them
+to private operator storage if needed, never public sitemap storage. HTTP 202
+is reported as `validation_pending` in the attempt receipt. The summary retains
+its existing `submitted` status for successful HTTP responses; it does not prove
+indexing. Transport failures now appear in partial/failed results with reason
+`unknown_delivery`, preserving earlier successful batches. There are no automatic
+retries or durable delivery history.
+
+Robots delivery is opt-in. Require `indexmap/robots_controller`, apply the host
+configuration, and mount the controller explicitly as documented in the README.
+Remove `public/robots.txt` when mounting it; static files can shadow Rails routes.
+Crawling defaults to disabled. Configure an explicit predicate that also handles
+staging running in production mode. The endpoint does not change host routes,
+queue adapters, refresh jobs, or sitemap storage.
+
 Search-engine ping tasks now treat `config.index_filename` as the authoritative
 sitemap entrypoint. Google submits that sitemap once, and IndexNow recursively
 reads the child sitemaps it references. Unreferenced `sitemap*.xml` files in the

@@ -7,6 +7,11 @@ require "uri"
 
 module Indexmap
   class Validator
+    MAX_ENTRIES = 50_000
+    MAX_BYTES = 52_428_800
+
+    attr_reader :entries
+
     def initialize(configuration: Indexmap.configuration, filename: nil)
       @configuration = configuration
       @filename = filename
@@ -16,8 +21,7 @@ module Indexmap
       sitemap_filename = filename || configuration.index_filename
       raise ValidationError, "Missing sitemap file: #{sitemap_filename}" unless storage.exist?(sitemap_filename)
 
-      validate_sitemap_file!(sitemap_filename)
-      entries = Parser.new(source: sitemap_filename, storage: storage, index_filename: configuration.index_filename).entries
+      @entries = validate_sitemap_files!(sitemap_filename)
       validate_presence!(entries)
       validate_duplicates!(entries)
       validate_parameterized_urls!(entries)
@@ -36,22 +40,48 @@ module Indexmap
       configuration.storage
     end
 
-    def validate_sitemap_file!(sitemap_filename)
-      document = read_xml_document(sitemap_filename)
-      root_name = document.root&.name
+    def validate_sitemap_files!(sitemap_filename)
+      pending = [[sitemap_filename, false]]
+      active = Set.new
+      visited = Set.new
+      entries = []
 
-      case root_name
-      when "urlset"
-        validate_urlset_document!(document, sitemap_filename)
-      when "sitemapindex"
-        validate_sitemap_index_document!(document, sitemap_filename)
-      else
-        raise ValidationError, "Invalid sitemap root element in #{sitemap_filename}: #{root_name || "none"}"
+      until pending.empty?
+        name, leaving = pending.pop
+        if leaving
+          active.delete(name)
+          next
+        end
+        raise ValidationError, "Sitemap cycle detected: #{name}" if active.include?(name)
+        next if visited.include?(name)
+
+        active.add(name)
+        visited.add(name)
+        pending << [name, true]
+        document = read_xml_document(name)
+        case document.root&.name
+        when "urlset"
+          entries.concat(validate_urlset_document!(document, name))
+        when "sitemapindex"
+          validate_sitemap_index_document!(document, name).reverse_each { |child| pending << [child, false] }
+        else
+          raise ValidationError, "Invalid sitemap root element in #{name}: #{document.root&.name || "none"}"
+        end
       end
+
+      entries
     end
 
     def read_xml_document(filename)
-      document = Nokogiri::XML(storage.read(filename)) { |config| config.strict }
+      body = storage.read(filename)
+      raise ValidationError, "Sitemap exceeds 52,428,800 bytes: #{filename}" if body.bytesize > MAX_BYTES
+
+      document = Nokogiri::XML(body) { |config| config.strict.nonet }
+      raise ValidationError, "Sitemap DTDs are not allowed: #{filename}" if document.internal_subset
+      if document.root && document.root.namespace&.href != "http://www.sitemaps.org/schemas/sitemap/0.9"
+        raise ValidationError, "Invalid sitemap namespace: #{filename}"
+      end
+
       document.remove_namespaces!
       document
     rescue Nokogiri::XML::SyntaxError => error
@@ -59,13 +89,21 @@ module Indexmap
     end
 
     def validate_urlset_document!(document, sitemap_filename)
-      return if document.xpath("/urlset/url/loc").any?
+      urls = document.xpath("/urlset/url")
+      raise ValidationError, "Sitemap exceeds 50,000 entries: #{sitemap_filename}" if urls.size > MAX_ENTRIES
+      raise ValidationError, "Sitemap has no URLs: #{sitemap_filename}" if urls.empty?
 
-      raise ValidationError, "Sitemap has no URLs: #{sitemap_filename}"
+      urls.map do |url|
+        lastmod = url.at_xpath("lastmod")&.text.to_s.strip
+        Parser::Entry.new(loc: location_for(url, filename: sitemap_filename), lastmod: lastmod.empty? ? nil : lastmod, source_sitemap: sitemap_filename)
+      end
     end
 
     def validate_sitemap_index_document!(document, sitemap_filename)
-      child_locations = document.xpath("/sitemapindex/sitemap/loc").map { |node| node.text.to_s.strip }.reject(&:empty?)
+      if document.xpath("/sitemapindex/sitemap").size > MAX_ENTRIES
+        raise ValidationError, "Sitemap exceeds 50,000 entries: #{sitemap_filename}"
+      end
+      child_locations = document.xpath("/sitemapindex/sitemap").map { |node| location_for(node, filename: sitemap_filename) }
       raise ValidationError, "Sitemap index has no child sitemap URLs: #{sitemap_filename}" if child_locations.empty?
 
       duplicate_children = child_locations.group_by(&:itself).select { |_loc, values| values.size > 1 }.keys
@@ -73,16 +111,31 @@ module Indexmap
         raise ValidationError, "Duplicate child sitemap URLs detected: #{duplicate_children.first(5).join(", ")}"
       end
 
-      child_locations.each do |location|
+      child_locations.map do |location|
         child_filename = local_child_filename(location, parent_filename: sitemap_filename)
         raise ValidationError, "Missing child sitemap file: #{child_filename}" unless storage.exist?(child_filename)
 
-        validate_sitemap_file!(child_filename)
+        child_filename
       end
+    end
+
+    def location_for(node, filename:)
+      locations = node.xpath("loc")
+      location = locations.first&.text.to_s.strip
+      if locations.size != 1 || location.empty?
+        raise ValidationError, "Sitemap entry must have one nonempty loc: #{filename}"
+      end
+      location
     end
 
     def local_child_filename(location, parent_filename:)
       uri = URI.parse(location)
+      base_uri = URI.parse(configuration.base_url)
+      if uri.query || uri.fragment || uri.userinfo || (uri.host &&
+          [uri.scheme, uri.host, uri.port] != [base_uri.scheme, base_uri.host, base_uri.port]) ||
+          (uri.scheme && !%w[http https].include?(uri.scheme))
+        raise ValidationError, "Invalid child sitemap URL: #{location}"
+      end
       if uri.absolute? || location.start_with?("/")
         normalize_local_filename(uri.path)
       else
@@ -90,12 +143,14 @@ module Indexmap
         normalize_local_filename((parent_directory == ".") ? location : File.join(parent_directory, location))
       end
     rescue URI::InvalidURIError
-      normalize_local_filename(location)
+      raise ValidationError, "Invalid child sitemap URL: #{location}"
     end
 
     def normalize_local_filename(filename)
       normalized = Pathname(filename.to_s).cleanpath.to_s.sub(%r{\A/+}, "")
-      return if normalized.empty? || normalized == ".." || normalized.start_with?("../")
+      if normalized.empty? || normalized == ".." || normalized.start_with?("../")
+        raise ValidationError, "Invalid child sitemap filename: #{filename}"
+      end
 
       normalized
     end
@@ -154,7 +209,11 @@ module Indexmap
       invalid_entries = entries.select do |entry|
         next false if entry.lastmod.nil?
 
-        Date.iso8601(entry.lastmod)
+        if entry.lastmod.match?(/\A\d{4}-\d{2}-\d{2}\z/)
+          Date.iso8601(entry.lastmod)
+        else
+          Time.iso8601(entry.lastmod)
+        end
         false
       rescue ArgumentError
         true
