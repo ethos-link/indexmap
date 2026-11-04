@@ -32,6 +32,15 @@ module Indexmap
       "#{prefix}#{generation}-index.xml"
     end
 
+    def validate_files!(files)
+      children = files.reject { |filename| filename == root }
+      unless files.count(root) == 1 && files.uniq.size == files.size &&
+          children.all? { |filename| child?(filename) } &&
+          children.map { |filename| generation(filename) }.uniq.size <= 1
+        raise ConfigurationError, "Publication must contain its root and one immutable generation"
+      end
+    end
+
     def current_generation(storage)
       return unless storage.exist?(root)
 

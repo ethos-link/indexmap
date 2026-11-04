@@ -269,7 +269,7 @@ class IndexmapPingerIndexNowTest < Minitest::Test
       events = []
       pinger.ping { |event| events << event }
       assert_equal rows.map { |row| row.fetch(:loc) }, events.select { |event| event[:event] == :attempt_started }.flat_map { |event| event[:urls] }
-      refute_includes events.to_json, VALID_KEY
+      refute_includes JSON.generate(events), VALID_KEY
     end
   end
 
@@ -358,6 +358,21 @@ class IndexmapPingerIndexNowTest < Minitest::Test
       assert_requested request, times: 1
       WebMock.reset!
     end
+  end
+
+  def test_selection_and_sending_share_one_resolved_storage
+    config = configuration_with(storage: sitemap_storage)
+    config.index_now.key = VALID_KEY
+    storage = config.storage
+    calls = 0
+    config.storage = -> {
+      calls += 1
+      storage
+    }
+    stub_request(:post, "https://api.indexnow.org/indexnow").to_return(status: 200)
+    result = Indexmap::Pinger::IndexNow.new(configuration: config).ping
+    assert_equal :submitted, result.fetch(:status)
+    assert_equal 1, calls
   end
 
   private

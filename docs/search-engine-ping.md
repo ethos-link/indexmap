@@ -1,5 +1,9 @@
 # Search Engine Ping
 
+> This guide describes unreleased main. For RubyGems 0.8.2, use the
+> [tagged documentation](https://github.com/ethos-link/indexmap/tree/v0.8.2).
+> See [release status](../README.md#release-status) and [UPGRADE.md](../UPGRADE.md).
+
 `indexmap` can submit generated sitemap data to Google Search Console and
 IndexNow. These integrations are optional: sitemap generation, formatting, and
 validation work without any search-engine credentials.

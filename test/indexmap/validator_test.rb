@@ -167,6 +167,20 @@ class IndexmapValidatorTest < Minitest::Test
     XML
   end
 
+  def test_validation_keeps_one_resolved_storage_for_the_entire_graph
+    config = configuration_with
+    config.sections = [Indexmap::Section.new(filename: "sitemap-pages.xml", entries: [{loc: "https://example.com/"}])]
+    Indexmap.create(configuration: config)
+    storage = config.storage
+    calls = 0
+    config.storage = -> {
+      calls += 1
+      storage
+    }
+    assert Indexmap::Validator.new(configuration: config).validate!(collect: false)
+    assert_equal 1, calls
+  end
+
   private
 
   def validate_sitemap(body)

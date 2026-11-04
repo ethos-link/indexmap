@@ -28,7 +28,7 @@ module Indexmap
           indexmap_tasks_requested = Rake.application.options.show_tasks ||
             ARGV.any? { |argument| ["-T", "--tasks"].include?(argument) }
           require "indexmap/tasks" if indexmap_tasks_requested ||
-            ARGV.any? { |argument| argument.start_with?("indexmap:") }
+            (Rake.application.top_level_tasks + ARGV).any? { |argument| argument.start_with?("indexmap:") }
 
         RUBY
       end

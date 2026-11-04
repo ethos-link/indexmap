@@ -49,28 +49,137 @@ class IndexmapPublicationTest < Minitest::Test
     end
   end
 
-  def test_failed_upload_does_not_change_root_and_orphans_can_be_pruned
+  def test_failed_copy_does_not_change_published_files_or_leave_staging
     Dir.mktmpdir do |directory|
       config = configuration(directory)
       Indexmap.create(configuration: config)
-      previous = config.storage.read("sitemap.xml")
       storage = config.storage
-      calls = 0
-      storage.define_singleton_method(:write_io) do |filename, io, **options|
-        calls += 1
-        raise IOError, "interrupted upload" if calls == 2
+      previous = storage.list.to_h { |filename| [filename, storage.read(filename)] }
+      storage.define_singleton_method(:publish) do |source, **options|
+        calls = 0
+        source.define_singleton_method(:open) do |filename, &block|
+          calls += 1
+          raise IOError, "interrupted copy" if calls == 2
 
-        super(filename, io, **options)
+          super(filename, &block)
+        end
+        super(source, **options)
       end
       assert_raises(IOError) { Indexmap.create(configuration: config) }
-      assert_equal previous, config.storage.read("sitemap.xml")
-      storage.singleton_class.remove_method(:write_io)
-      config.storage.list(prefix: "sitemap-", suffix: ".xml").each do |filename|
-        File.utime(Time.at(0), Time.at(0), File.join(directory, filename))
-      end
-      deleted = config.storage.prune(root: "sitemap.xml", before: Time.now.utc - 3600)
-      assert_equal 1, deleted.size
+      assert_equal previous, storage.list.to_h { |filename| [filename, storage.read(filename)] }
+      assert_empty Dir.glob(File.join(directory, ".indexmap-builds/*/build-*"))
+    end
+  end
+
+  def test_atomic_refresh_preserves_existing_root_permissions
+    Dir.mktmpdir do |directory|
+      config = configuration(directory)
+      Indexmap.create(configuration: config)
+      root = File.join(directory, "sitemap.xml")
+      File.chmod(0o640, root)
+      Indexmap.create(configuration: config)
+      assert_equal 0o640, File.stat(root).mode & 0o777
       assert Indexmap::Validator.new(configuration: config).validate!
+    end
+  end
+
+  def test_failed_root_activation_removes_new_children
+    Dir.mktmpdir do |directory|
+      config = configuration(directory)
+      old = Indexmap.create(configuration: config)
+      previous = config.storage.read("sitemap.xml")
+      rename = File.method(:rename)
+      File.stub(:rename, ->(source, destination) do
+        raise Errno::EACCES, "root activation denied" if destination.to_s == File.join(directory, "sitemap.xml")
+
+        rename.call(source, destination)
+      end) do
+        assert_raises(Errno::EACCES) { Indexmap.create(configuration: config) }
+      end
+      assert_equal previous, config.storage.read("sitemap.xml")
+      children = config.storage.list(prefix: "sitemap-", suffix: ".xml").reject { |name| name.end_with?("-index.xml") }
+      assert_equal (old - ["sitemap.xml"]).sort, children
+      assert_empty Dir.glob(File.join(directory, ".indexmap-builds/*/build-*"))
+      assert Indexmap::Validator.new(configuration: config).validate!
+    end
+  end
+
+  def test_copying_does_not_block_a_competing_publisher
+    Dir.mktmpdir do |directory|
+      config = configuration(directory)
+      Indexmap.create(configuration: config)
+      storage = config.storage
+      entered = Queue.new
+      release = Queue.new
+      storage.define_singleton_method(:publish) do |source, **options|
+        source.define_singleton_method(:open) do |filename, &block|
+          unless @paused
+            @paused = true
+            entered << true
+            release.pop
+          end
+          super(filename, &block)
+        end
+        super(source, **options)
+      end
+      thread = Thread.new do
+        Indexmap.create(configuration: config)
+      rescue Indexmap::SupersededPublication => error
+        error
+      end
+      Timeout.timeout(5) { entered.pop }
+      competing = configuration(directory)
+      winner = Timeout.timeout(5) { Indexmap.create(configuration: competing) }
+      release << true
+      assert_instance_of Indexmap::SupersededPublication, Timeout.timeout(5) { thread.value }
+      assert winner.all? { |filename| storage.exist?(filename) }
+      assert Indexmap::Parser.new(storage: storage).entries.all? { |entry| winner.include?(entry.source_sitemap) }
+      assert Indexmap::Validator.new(configuration: config).validate!
+      assert_empty Dir.glob(File.join(directory, ".indexmap-builds/*/build-*"))
+    ensure
+      thread&.kill if thread&.alive?
+    end
+  end
+
+  def test_pruning_reclaims_crashed_staging_and_skips_live_builds
+    Dir.mktmpdir do |directory|
+      config = configuration(directory)
+      Indexmap.create(configuration: config)
+      reader, writer = IO.pipe
+      pid = fork do
+        reader.close
+        config.storage.define_singleton_method(:publish) do |source, **options|
+          source.define_singleton_method(:open) do |filename, &block|
+            writer.write("staging")
+            writer.flush
+            sleep
+            super(filename, &block)
+          end
+          super(source, **options)
+        end
+        Indexmap.create(configuration: config)
+      end
+      writer.close
+      assert IO.select([reader], nil, nil, 5), "build did not reach destination staging"
+      reader.read(7)
+      staged = Dir.glob(File.join(directory, ".indexmap-builds/*/build-*")).fetch(0)
+      File.utime(Time.at(0), Time.at(0), staged)
+      assert_empty config.storage.prune(root: "sitemap.xml", before: Time.now.utc - 3600)
+      assert File.directory?(staged)
+      Process.kill("KILL", pid)
+      Process.wait(pid)
+      pid = nil
+      deleted = config.storage.prune(root: "sitemap.xml", before: Time.now.utc - 3600)
+      assert_equal [Pathname(staged).relative_path_from(Pathname(directory)).to_s], deleted
+      refute File.exist?(staged)
+      assert Indexmap::Validator.new(configuration: config).validate!
+    ensure
+      if pid
+        Process.kill("KILL", pid)
+        Process.wait(pid)
+      end
+      reader&.close
+      writer&.close unless writer&.closed?
     end
   end
 

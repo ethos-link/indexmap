@@ -15,8 +15,9 @@ module Indexmap
 
     attr_reader :entries
 
-    def initialize(configuration: Indexmap.configuration, filename: nil)
+    def initialize(configuration: Indexmap.configuration, filename: nil, storage: nil)
       @configuration = configuration
+      @storage = storage
       @filename = filename
     end
 
@@ -65,7 +66,7 @@ module Indexmap
     attr_reader :configuration, :filename
 
     def storage
-      configuration.storage
+      @storage ||= configuration.storage
     end
 
     def validate_sitemap_files!(sitemap_filename)

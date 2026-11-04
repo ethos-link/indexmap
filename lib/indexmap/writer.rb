@@ -87,7 +87,7 @@ module Indexmap
     end
 
     def write_file(filename, body)
-      Storage::File.new(filename: filename, body: body, content_type: "application/xml")
+      Artifact.new(filename: filename, body: body, content_type: "application/xml")
     end
 
     HEADER = %(<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n)

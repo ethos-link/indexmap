@@ -16,6 +16,27 @@ module Indexmap
       end
 
       def validate!
+        previous = nil
+        each_sorted_location do |line|
+          raise ValidationError, "Duplicate sitemap URLs detected: #{line.chomp}" if line == previous
+
+          previous = line
+        end
+      end
+
+      def unique_count
+        count = 0
+        previous = nil
+        each_sorted_location do |line|
+          count += 1 unless line == previous
+          previous = line
+        end
+        count
+      end
+
+      private
+
+      def each_sorted_location
         flush unless @buffer.empty?
         while @runs.size > 1
           @runs = @runs.each_slice(2).map do |left, right|
@@ -43,17 +64,8 @@ module Indexmap
             target
           end
         end
-        previous = nil
-        if @runs.first
-          File.foreach(@runs.first) do |line|
-            raise ValidationError, "Duplicate sitemap URLs detected: #{line.chomp}" if line == previous
-
-            previous = line
-          end
-        end
+        File.foreach(@runs.first) { |line| yield line } if @runs.first
       end
-
-      private
 
       def flush
         path = next_path

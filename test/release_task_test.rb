@@ -2,6 +2,8 @@
 
 require "test_helper"
 require "rake"
+require "open3"
+require "rbconfig"
 
 unless respond_to?(:release_version, true)
   load File.expand_path("../Rakefile", __dir__)
@@ -74,7 +76,95 @@ class ReleaseTaskTest < Minitest::Test
     )
   end
 
+  def test_release_preparation_rejects_protected_and_detached_branches
+    ["main", "master", ""].each do |branch|
+      error = assert_raises(ArgumentError) { validate_release_branch!(branch) }
+      assert_match(/topic branch/, error.message)
+    end
+    assert_nil validate_release_branch!("release/0.9.0")
+  end
+
+  def test_prepare_updates_files_without_committing_tagging_or_pushing
+    script = <<~RUBY
+      require "rake"
+      load "Rakefile"
+      def current_branch = "release/next"
+      def clean_worktree? = true
+      def validate_release_version!(*); end
+      def update_changelog(version) = puts("changelog:" + version)
+      def update_version_file(version) = puts("version:" + version)
+      def sh(*) = abort("unexpected shell mutation")
+      Rake::Task["release:prepare"].invoke("minor")
+    RUBY
+    stdout, stderr, status = Open3.capture3(RbConfig.ruby, "-e", script)
+    assert status.success?, stderr
+    expected = release_version("minor")
+    assert_includes stdout, "changelog:#{expected}"
+    assert_includes stdout, "version:#{expected}"
+    assert_includes stdout, "release:tag"
+  end
+
+  def test_tag_pushes_only_the_prepared_merged_commit
+    with_release_repository do |repo, origin|
+      before = git!(repo, "rev-parse", "HEAD").strip
+      stdout, stderr, status = run_release_task(repo, "release:tag")
+      assert status.success?, stdout + stderr
+      assert_equal before, git!(repo, "rev-parse", "HEAD").strip
+      assert_equal before, git!(repo, "rev-parse", "v#{Indexmap::VERSION}^{}").strip
+      assert_includes git!(origin, "tag", "--list"), "v#{Indexmap::VERSION}"
+      assert_empty git!(repo, "status", "--porcelain")
+    end
+  end
+
+  def test_tag_rejects_main_that_has_not_been_merged_to_origin
+    with_release_repository do |repo, origin|
+      File.write(File.join(repo, "unmerged.txt"), "unmerged")
+      git!(repo, "add", "unmerged.txt")
+      git!(repo, "commit", "-m", "test: unmerged change")
+      stdout, stderr, status = run_release_task(repo, "release:tag")
+      refute status.success?, stdout + stderr
+      assert_includes stderr, "Local main must match origin/main"
+      assert_empty git!(repo, "tag", "--list")
+      assert_empty git!(origin, "tag", "--list")
+    end
+  end
+
   private
+
+  def with_release_repository
+    Dir.mktmpdir("indexmap-release-test") do |directory|
+      repo = File.join(directory, "repo")
+      origin = File.join(directory, "origin.git")
+      FileUtils.mkdir_p([repo, origin, File.join(repo, "lib/indexmap")])
+      git!(origin, "init", "--bare")
+      git!(repo, "init", "-b", "main")
+      git!(repo, "config", "user.name", "Release Test")
+      git!(repo, "config", "user.email", "release@example.test")
+      %w[Rakefile indexmap.gemspec CHANGELOG.md lib/indexmap/version.rb].each do |file|
+        FileUtils.cp(File.expand_path("../#{file}", __dir__), File.join(repo, file))
+      end
+      git!(repo, "add", ".")
+      git!(repo, "commit", "-m", "test: prepare release fixture")
+      git!(repo, "remote", "add", "origin", origin)
+      git!(repo, "push", "-u", "origin", "main")
+      yield repo, origin
+    end
+  end
+
+  def git!(directory, *args)
+    stdout, stderr, status = Open3.capture3("git", *args, chdir: directory)
+    raise stderr unless status.success?
+
+    stdout
+  end
+
+  def run_release_task(directory, task)
+    Open3.capture3(
+      {"BUNDLE_GEMFILE" => File.expand_path(ENV.fetch("BUNDLE_GEMFILE", "Gemfile"))},
+      RbConfig.ruby, "-rrake", "-e", 'load "Rakefile"; Rake::Task[ARGV.fetch(0)].invoke', task,
+      chdir: directory
+    )
+  end
 
   def local_release_tag_exists?(_tag)
     @local_release_tag_exists || false

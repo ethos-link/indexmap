@@ -1,33 +1,33 @@
 # frozen_string_literal: true
 
-module IndexmapConfiguration
-  MUTEX = Mutex.new
+module Indexmap
+  module HostConfiguration
+    MUTEX = Mutex.new
 
-  def self.apply
-    return if @applied
-
-    MUTEX.synchronize do
+    def self.apply
       return if @applied
 
-      require "indexmap"
+      MUTEX.synchronize do
+        return if @applied
 
-      Indexmap.configure do |config|
-        config.base_url = -> { ENV.fetch("INDEXMAP_BASE_URL", "http://localhost:3000") }
-        config.storage = lambda {
-          Indexmap::Storage::Filesystem.new(
+        require "indexmap"
+
+        Indexmap.configure do |config|
+          config.base_url = -> { ENV.fetch("INDEXMAP_BASE_URL", "http://localhost:3000") }
+          config.storage = Indexmap::Storage::Filesystem.new(
             path: Rails.public_path,
             public_url: config.base_url
           )
-        }
 
-        # Search-engine pings start from config.index_filename (default: "sitemap.xml").
-        # Configure the sitemap data owned by your application:
-        # config.sections = -> { Sitemap.sections }
+          # Search-engine pings start from config.index_filename (default: "sitemap.xml").
+          # Configure the sitemap data owned by your application:
+          # config.sections = -> { Sitemap.sections }
+        end
+
+        @applied = true
       end
-
-      @applied = true
     end
   end
 end
 
-IndexmapConfiguration.apply if defined?(Indexmap)
+Indexmap::HostConfiguration.apply if defined?(Indexmap::Configuration)

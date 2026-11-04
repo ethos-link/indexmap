@@ -5,7 +5,7 @@ namespace :indexmap do
       runner = Indexmap::TaskRunner.new
       create_result = runner.create
 
-      puts "Created, formatted, and validated #{file_count(create_result[:files])}."
+      puts "Created and validated #{file_count(create_result[:files])}."
       puts "Files created:"
       create_result[:sitemaps].each do |sitemap|
         puts "  - #{sitemap[:location]} (#{link_count(sitemap[:link_count])})"

@@ -9,7 +9,7 @@ require_relative "indexmap/version"
 require_relative "indexmap/google_configuration"
 require_relative "indexmap/index_now_configuration"
 require_relative "indexmap/robots"
-require_relative "indexmap/storage/file"
+require_relative "indexmap/artifact"
 require_relative "indexmap/storage/memory"
 require_relative "indexmap/storage/filesystem"
 require_relative "indexmap/storage/active_storage"
@@ -36,6 +36,16 @@ module Indexmap
   class ConfigurationError < Error; end
   class ValidationError < Error; end
   class SupersededPublication < Error; end
+
+  class PublicationCleanupError < Error
+    attr_reader :failures
+
+    def initialize(failures)
+      @failures = failures
+      artifacts = failures.map { |failure| failure.fetch(:artifact) }.join(", ")
+      super("Failed to clean up publication artifacts: #{artifacts}")
+    end
+  end
 
   class << self
     def configuration

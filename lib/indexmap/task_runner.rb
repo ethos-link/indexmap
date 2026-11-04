@@ -4,12 +4,13 @@ require "nokogiri"
 
 module Indexmap
   class TaskRunner
-    def initialize(configuration: Indexmap.configuration)
+    def initialize(configuration: Indexmap.configuration, storage: nil)
       @configuration = configuration
+      @storage = storage
     end
 
     def create
-      creator = Creator.new(output: default_output)
+      creator = Creator.new(output: default_output, storage: storage)
       written_files = creator.create
       index_now_key_filename = write_index_now_key if configuration.index_now.write_key_file?
       configuration.run_after_create_callbacks
@@ -43,7 +44,7 @@ module Indexmap
     end
 
     def validate
-      Validator.new(configuration: configuration).validate!(collect: false)
+      Validator.new(configuration: configuration, storage: storage).validate!(collect: false)
       sitemap_files
     end
 
@@ -58,14 +59,14 @@ module Indexmap
     end
 
     def write_index_now_key(generate_if_missing: false)
-      pinger = Pinger::IndexNow.new(configuration: configuration)
+      pinger = Pinger::IndexNow.new(configuration: configuration, storage: storage)
       return pinger.ensure_key_file if generate_if_missing
 
       pinger.write_key_file
     end
 
     def storage
-      configuration.storage
+      @storage ||= configuration.storage
     end
 
     private

@@ -119,4 +119,81 @@ class IndexmapParserTest < Minitest::Test
 
     assert_equal ["/pages/pricing"], parser.paths
   end
+
+  def test_rejects_cross_origin_children_including_scheme_relative_urls
+    ["https://other.example/child.xml", "//other.example/child.xml", "http://www.example.com/child.xml",
+      "https://www.example.com:444/child.xml", "https://user@www.example.com/child.xml"].each do |child|
+      stub_request(:get, "https://www.example.com/sitemap.xml").to_return(
+        body: "<sitemapindex><sitemap><loc>#{child}</loc></sitemap></sitemapindex>"
+      )
+      error = assert_raises(Indexmap::ValidationError) do
+        Indexmap::Parser.new(source: "https://www.example.com/sitemap.xml").entries
+      end
+      assert_match(/source origin/, error.message)
+    end
+    assert_requested :get, "https://www.example.com/sitemap.xml", times: 5
+  end
+
+  def test_redirects_are_limited_to_the_source_origin
+    stub_request(:get, "https://www.example.com/sitemap.xml")
+      .to_return(status: 302, headers: {"Location" => "/current.xml"})
+    stub_request(:get, "https://www.example.com/current.xml")
+      .to_return(body: "<urlset><url><loc>https://www.example.com/page</loc></url></urlset>")
+    assert_equal ["/page"], Indexmap::Parser.new(source: "https://www.example.com/sitemap.xml").paths
+
+    stub_request(:get, "https://www.example.com/current.xml")
+      .to_return(status: 302, headers: {"Location" => "http://169.254.169.254/metadata"})
+    assert_raises(Indexmap::ValidationError) do
+      Indexmap::Parser.new(source: "https://www.example.com/sitemap.xml").entries
+    end
+    assert_not_requested :get, "http://169.254.169.254/metadata"
+  end
+
+  def test_redirect_loops_stop
+    stub_request(:get, "https://www.example.com/sitemap.xml")
+      .to_return(status: 302, headers: {"Location" => "/sitemap.xml"})
+    assert_empty Indexmap::Parser.new(source: "https://www.example.com/sitemap.xml").entries
+    assert_requested :get, "https://www.example.com/sitemap.xml", times: 4
+  end
+
+  def test_rejects_oversized_remote_responses_with_and_without_content_length
+    [{}, {"Content-Length" => (Indexmap::Validator::MAX_BYTES + 1).to_s}].each do |headers|
+      stub_request(:get, "https://www.example.com/sitemap.xml")
+        .to_return(body: "x" * (Indexmap::Validator::MAX_BYTES + 1), headers: headers)
+      assert_raises(Indexmap::ValidationError) do
+        Indexmap::Parser.new(source: "https://www.example.com/sitemap.xml").entries
+      end
+    end
+  end
+
+  def test_rejects_oversized_redirect_and_error_bodies
+    [302, 500].each do |status|
+      stub_request(:get, "https://www.example.com/sitemap.xml")
+        .to_return(status: status, body: "x" * (Indexmap::Validator::MAX_BYTES + 1))
+      assert_raises(Indexmap::ValidationError) do
+        Indexmap::Parser.new(source: "https://www.example.com/sitemap.xml").entries
+      end
+    end
+  end
+
+  def test_enumerates_storage_without_whole_file_reads_and_handles_cycles
+    storage = Indexmap::Storage::Memory.new
+    storage.write("sitemap.xml", "<sitemapindex><sitemap><loc>sitemap.xml</loc></sitemap><sitemap><loc>child.xml</loc></sitemap></sitemapindex>")
+    storage.write("child.xml", "<urlset><url><loc>https://example.com/a</loc><lastmod>2026-04-21</lastmod></url><url><loc>https://example.com/b</loc></url></urlset>")
+    storage.define_singleton_method(:metadata) { |name| {bytes: files.fetch(name).body.bytesize} }
+    storage.define_singleton_method(:open) { |name, &block| block.call(StringIO.new(files.fetch(name).body)) }
+    storage.define_singleton_method(:read) { |*| raise "whole-file read" }
+    parser = Indexmap::Parser.new(storage: storage)
+    entries = parser.each_entry.to_a
+    assert_equal ["https://example.com/a", "https://example.com/b"], entries.map(&:loc)
+    assert_equal ["2026-04-21", nil], entries.map(&:lastmod)
+    refute parser.instance_variable_defined?(:@entries)
+  end
+
+  def test_rejects_dtds_without_fetching_entities
+    storage = Indexmap::Storage::Memory.new
+    storage.write("sitemap.xml", '<!DOCTYPE urlset [<!ENTITY x SYSTEM "http://example.com/secret">]><urlset><url><loc>&x;</loc></url></urlset>')
+    assert_raises(Indexmap::ValidationError) { Indexmap::Parser.new(storage: storage).entries }
+    assert_not_requested :get, "http://example.com/secret"
+  end
 end
