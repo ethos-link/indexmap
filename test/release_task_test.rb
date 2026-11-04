@@ -106,13 +106,30 @@ class ReleaseTaskTest < Minitest::Test
       assert_includes message, "chore(release): prepare v#{expected}"
       %w[What: Why: Where:].each { |heading| assert_includes message, heading }
       assert_empty git!(repo, "status", "--porcelain")
+      assert_equal "v#{expected}\n", git!(repo, "tag", "--list")
+      assert_equal "v#{expected}\n", git!(origin, "tag", "--list")
+      assert_equal "tag\n", git!(repo, "cat-file", "-t", "v#{expected}")
+      assert_equal git!(repo, "rev-parse", "HEAD"), git!(repo, "rev-parse", "v#{expected}^{}")
+      assert_equal git!(repo, "rev-parse", "HEAD"), git!(origin, "rev-parse", "v#{expected}^{}")
+      assert_includes stdout, "GitHub Actions will publish the gem and create the release."
+      refute_includes stdout, "Then run"
+    end
+  end
+
+  def test_prepare_does_not_tag_when_pushing_main_fails
+    with_release_repository do |repo, origin|
+      before = git!(origin, "rev-parse", "main")
+      hook = File.join(origin, "hooks/pre-receive")
+      File.write(hook, "#!/bin/sh\necho 'release push rejected' >&2\nexit 1\n")
+      FileUtils.chmod(0o755, hook)
+
+      stdout, stderr, status = run_release_task(repo, "release:prepare[minor]")
+      refute status.success?, stdout + stderr
+      assert_includes stderr, "release push rejected"
+      refute_equal before, git!(repo, "rev-parse", "HEAD")
+      assert_equal before, git!(origin, "rev-parse", "main")
       assert_empty git!(repo, "tag", "--list")
       assert_empty git!(origin, "tag", "--list")
-      assert_includes stdout, "release:tag"
-
-      stdout, stderr, status = run_release_task(repo, "release:tag")
-      assert status.success?, stdout + stderr
-      assert_equal git!(repo, "rev-parse", "HEAD"), git!(origin, "rev-parse", "v#{expected}^{}")
     end
   end
 

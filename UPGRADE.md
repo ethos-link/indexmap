@@ -77,13 +77,16 @@ cleanup by object key even when Active Storage already removed the blob row.
 
 `release:prepare[...]` now runs from clean, updated `main` matching
 `origin/main`. It updates the version and changelog, creates a Conventional
-Commit with hooks enabled, and pushes `main`. Replace scripts that prepare on a
-topic branch or separately commit those files. The branch hook permits only a
-release-task commit containing the bumped version and matching changelog; other
+Commit with hooks enabled, pushes `main`, then creates and pushes the annotated
+version tag to trigger publishing in GitHub Actions. Replace scripts that prepare
+on a topic branch or separately commit or tag those files. The branch hook permits
+only a release-task commit containing the bumped version and matching changelog; other
 changes still require a topic branch. Ensure remote branch protections permit
-the maintainer to push this release commit. Then run `bundle exec rake release:tag`
-to create and push the tag. If pushing preparation fails, push the existing
-release commit before tagging rather than preparing the same version again.
+the maintainer to push this release commit. `release:tag` remains available to
+resume a release whose commit was already pushed without a tag. If preparation
+fails after committing, push the existing release commit and resume tagging
+rather than preparing the same version again. If the tag exists locally after a
+failed tag push, retry pushing that tag.
 See the [release instructions](README.md#release).
 
 ### Task loading, parsing, and documentation
