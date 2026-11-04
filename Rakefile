@@ -63,6 +63,16 @@ def validate_release_version!(version, current)
     raise ArgumentError, message
   end
 
+  validate_release_tag!(version)
+end
+
+def validate_release_branch!(branch)
+  if branch.empty? || %w[main master].include?(branch)
+    raise ArgumentError, "Prepare a release on a topic branch, then merge to main before tagging."
+  end
+end
+
+def validate_release_tag!(version)
   tag = release_tag(version)
   if local_release_tag_exists?(tag)
     raise ArgumentError, "Release tag #{tag} already exists locally."
@@ -154,14 +164,10 @@ task :release do
 end
 
 namespace :release do
-  desc "Prepare a release: update changelog/version, commit, tag, and push."
+  desc "Prepare changelog/version on a topic branch for review; no commit or push."
   task :prepare, [:target] do |_task, args|
     branch = current_branch
-    unless %w[main master].include?(branch)
-      message = "Release must run on main or master. Current branch: " \
-        "#{branch.inspect}."
-      abort message
-    end
+    validate_release_branch!(branch)
     abort "Release requires a clean working tree." unless clean_worktree?
 
     version = release_version(args[:target])
@@ -171,13 +177,29 @@ namespace :release do
     update_changelog(version)
     update_version_file(version)
 
-    tag = release_tag(version)
+    puts "Prepared #{release_tag(version)}. Review, commit on #{branch}, and merge to main."
+    puts "After merging and pulling main, run bundle exec rake release:tag."
+  rescue ArgumentError, RuntimeError => e
+    abort e.message
+  end
 
-    sh "git add CHANGELOG.md lib/indexmap/version.rb"
-    sh %(LEFTHOOK=0 git commit -m "chore(release): prepare v#{version}")
-    sh %(git tag -a #{tag} -m "Release #{tag}")
-    sh "git push origin #{branch}"
-    sh "git push origin #{tag}"
+  desc "Tag and push the prepared release from clean, merged main."
+  task :tag do
+    abort "Tag releases from main." unless current_branch == "main"
+    abort "Release requires a clean working tree." unless clean_worktree?
+    version = Indexmap::VERSION
+    validate_release_tag!(version)
+    unless File.read("CHANGELOG.md").match?(/^## \[#{Regexp.escape(version)}\]/)
+      abort "Missing changelog entry for #{version}; run release:prepare on a topic branch first."
+    end
+    sh "git", "fetch", "origin", "main"
+    unless `git rev-parse HEAD`.strip == `git rev-parse origin/main`.strip
+      abort "Local main must match origin/main before tagging."
+    end
+
+    tag = release_tag(version)
+    sh "git", "tag", "-a", tag, "-m", "Release #{tag}"
+    sh "git", "push", "origin", tag
   rescue ArgumentError, RuntimeError => e
     abort e.message
   end
