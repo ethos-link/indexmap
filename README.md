@@ -611,9 +611,9 @@ Install [git-cliff](https://git-cliff.org/) locally before preparing a
 release. The release task prepends the next `CHANGELOG.md` section from
 Conventional Commits.
 
-Before preparing a release, create a topic branch from updated `main` (for
-example `release/0.9.0`) with a clean worktree. If the release changes a public
-contract, update `UPGRADE.md` with the host-app migration steps first.
+Before preparing a release, switch to updated `main` with a clean worktree
+matching `origin/main`. If the release changes a public contract, merge the
+`UPGRADE.md` migration steps before preparing the release.
 
 Then run one of:
 
@@ -625,20 +625,23 @@ bundle exec rake 'release:prepare[0.9.0]'
 ```
 
 The task prepends the changelog and updates the version, preserving existing
-history. Review the diff and update release-status notices when the features
-become part of that release. Commit on the topic branch using a Conventional
-Commit with `What:`, `Why:`, and `Where:` in the body, and merge through a PR to
-`main`. Preparation does not commit, tag, push, or bypass hooks.
+history. It commits those two files on `main` with a Conventional Commit and
+`What:`, `Why:`, and `Where:` in the body, then pushes `main`. Review any
+release-status notices before running it. Hooks remain enabled; the branch
+protection hook permits only the task's version and changelog commit on `main`.
+Ordinary changes still require a topic branch. Remote branch protections must
+permit the maintainer to push this release commit.
 
-After the PR is merged, switch to `main`, pull the merged result, and run:
+After preparation succeeds, create and push the annotated release tag:
 
 ```bash
 bundle exec rake release:tag
 ```
 
-This requires a clean `main` matching `origin/main`, an unused version tag, and a
-matching changelog section. It creates and pushes the annotated tag without
-committing to `main`. Gem metadata links documentation to that version's tag.
+Tagging requires a clean `main` matching `origin/main`, an unused version tag,
+and a matching changelog section. Gem metadata links documentation to that
+version's tag. If a push fails, resolve the failure and push the existing release
+commit before tagging; do not rerun preparation with the same version.
 
 The `Release` workflow then runs tests, publishes the gem to RubyGems,
 and creates the GitHub release from the changelog entry.
