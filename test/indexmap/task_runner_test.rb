@@ -126,6 +126,20 @@ class IndexmapTaskRunnerTest < Minitest::Test
     assert_equal [1, 1], result.fetch(:sitemaps).map { |file| file.fetch(:link_count) }
   end
 
+  def test_create_resolves_storage_once_for_publication_and_key_handling
+    stores = []
+    config = configuration_with
+    config.storage = -> { stores.push(Indexmap::Storage::Memory.new).last }
+    config.index_now.key = VALID_KEY
+    result = Indexmap::TaskRunner.new(configuration: config).create
+    assert_equal 1, stores.size
+    assert result.fetch(:files).all? { |filename| stores.first.exist?(filename) }
+    assert_equal VALID_KEY, stores.first.read("#{VALID_KEY}.txt")
+    Indexmap::TaskRunner.new(configuration: config).create
+    assert_equal 2, stores.size
+    assert stores.last.exist?("sitemap.xml")
+  end
+
   private
 
   def configuration_with(storage: Indexmap::Storage::Memory.new)

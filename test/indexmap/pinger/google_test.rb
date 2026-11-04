@@ -159,6 +159,28 @@ class IndexmapPingerGoogleTest < Minitest::Test
     assert_nil service.submitted
   end
 
+  def test_counts_unique_urls_across_disk_sort_runs_without_whole_file_reads
+    storage = Indexmap::Storage::Memory.new(public_url: "https://www.example.com")
+    rows = (1..10_001).map { |id| "<url><loc>https://www.example.com/#{id}</loc></url>" }.join
+    storage.write("sitemap.xml", "<urlset>#{rows}#{rows}</urlset>")
+    storage.define_singleton_method(:metadata) { |name| {bytes: files.fetch(name).body.bytesize} }
+    storage.define_singleton_method(:open) { |name, &block| block.call(StringIO.new(files.fetch(name).body)) }
+    storage.define_singleton_method(:read) { |*| raise "whole-file read" }
+    configuration = configuration_with(storage: storage)
+    configuration.google.credentials = '{"type":"service_account"}'
+    calls = 0
+    configuration.storage = -> {
+      calls += 1
+      storage
+    }
+    service = FakeWebmastersService.new(site_urls: ["sc-domain:example.com"])
+    result = Indexmap::Pinger::Google.new(
+      configuration: configuration, service: service, credentials_builder: ->(**) { :fake_authorizer }
+    ).ping
+    assert_equal 10_001, result[:url_count]
+    assert_equal 1, calls
+  end
+
   private
 
   def configuration_with(storage: Indexmap::Storage::Memory.new(public_url: "https://www.example.com"))

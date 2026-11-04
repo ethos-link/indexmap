@@ -94,6 +94,33 @@ class IndexmapStorageTest < Minitest::Test
     end
   end
 
+  def test_filesystem_listing_scopes_literal_prefixes_before_inspecting_files
+    Dir.mktmpdir do |directory|
+      storage = Indexmap::Storage::Filesystem.new(path: directory)
+      storage.write("sitemaps/current-1.xml", "xml")
+      storage.write("sitemaps/current-2.xml", "xml")
+      storage.write("sitemaps/other/old.xml", "xml")
+      storage.write("uploads/unrelated.xml", "xml")
+      storage.write("sitemaps/literal[1].xml", "xml")
+      file_test = FileTest.method(:file?)
+      FileTest.stub(:file?, ->(name) do
+        raise "inspected unrelated files" if name.to_s.include?("uploads/") || name.to_s.include?("sitemaps/other/")
+
+        file_test.call(name)
+      end) do
+        assert_equal ["sitemaps/current-1.xml", "sitemaps/current-2.xml"], storage.list(prefix: "sitemaps/current-", suffix: ".xml")
+      end
+      assert_equal ["sitemaps/literal[1].xml"], storage.list(prefix: "sitemaps/literal[", suffix: ".xml")
+      assert_raises(ArgumentError) { storage.list(prefix: "../outside/") }
+      assert_raises(ArgumentError) { storage.list(prefix: "/sitemaps/") }
+      assert_raises(ArgumentError) { storage.list(prefix: "sitemaps/../uploads/") }
+      storage.write(".private/hidden.xml", "private")
+      File.symlink(File.join(directory, "sitemaps"), File.join(directory, "alias"))
+      assert_empty storage.list(prefix: ".private/")
+      assert_empty storage.list(prefix: "alias/")
+    end
+  end
+
   def test_filesystem_storage_rejects_absolute_filenames
     Dir.mktmpdir do |dir|
       storage = Indexmap::Storage::Filesystem.new(path: dir)

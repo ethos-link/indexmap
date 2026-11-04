@@ -17,7 +17,7 @@ module Indexmap
 
       def write(filename, body, content_type: DEFAULT_CONTENT_TYPE)
         normalized = normalize_filename(filename)
-        files[normalized] = File.new(
+        files[normalized] = Artifact.new(
           filename: normalized,
           body: body.to_s,
           content_type: content_type || DEFAULT_CONTENT_TYPE

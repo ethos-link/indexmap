@@ -9,13 +9,13 @@ module Indexmap
 
     attr_reader :sitemaps
 
-    def initialize(output:)
+    def initialize(output:, storage: nil)
       @output = output
+      @storage = storage
     end
 
     def create
       atomic = output.atomic
-      storage = output.storage
       root = output.index_filename
       raise ConfigurationError, "Root filename uses the reserved immutable namespace" if Publication.immutable?(root)
       if atomic && !(storage.respond_to?(:revision) && storage.respond_to?(:publish))
@@ -57,5 +57,9 @@ module Indexmap
     private
 
     attr_reader :output
+
+    def storage
+      @storage ||= output.storage
+    end
   end
 end

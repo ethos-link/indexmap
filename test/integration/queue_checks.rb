@@ -7,7 +7,7 @@ require "rbconfig"
 
 class QueueChecks < Minitest::Test
   def setup
-    IndexmapConfiguration.apply
+    Indexmap::HostConfiguration.apply
     PublicPage.delete_all
     5.times { |id| PublicPage.create!(slug: "page-#{id}", published: true) }
   end
@@ -78,7 +78,156 @@ class QueueChecks < Minitest::Test
     assert second.all? { |filename| config.storage.exist?(filename) }
   end
 
+  def test_active_storage_rejects_stale_builds_without_uploading
+    config = active_storage_configuration("stale.xml")
+    Indexmap.create(configuration: config)
+    expected = config.storage.revision(config.index_filename)
+    Indexmap.create(configuration: config)
+    blobs = ActiveStorage::Blob.order(:id).pluck(:id)
+    assert_raises(Indexmap::SupersededPublication) do
+      config.storage.publish(nil, files: [], root: config.index_filename, expected: expected)
+    end
+    assert_equal blobs, ActiveStorage::Blob.order(:id).pluck(:id)
+  end
+
+  def test_active_storage_cleans_partial_uploads_synchronously
+    config = active_storage_configuration("failed-upload.xml")
+    Indexmap.create(configuration: config)
+    previous = config.storage.read(config.index_filename)
+    blobs = ActiveStorage::Blob.order(:id).pluck(:id)
+    records = SitemapArtifact.order(:id).pluck(:id)
+    service = ActiveStorage::Blob.service
+    uploaded = []
+    service.define_singleton_method(:upload) do |key, io, **options|
+      super(key, io, **options)
+      uploaded << key
+      raise IOError, "upload interrupted after object write" if uploaded.size == 2
+    end
+    assert_raises(IOError) { Indexmap.create(configuration: config) }
+    assert_equal previous, config.storage.read(config.index_filename)
+    assert_equal blobs, ActiveStorage::Blob.order(:id).pluck(:id)
+    assert_equal records, SitemapArtifact.order(:id).pluck(:id)
+    assert uploaded.none? { |key| service.exist?(key) }
+    assert Indexmap::Validator.new(configuration: config).validate!
+  ensure
+    service&.singleton_class&.remove_method(:upload)
+  end
+
+  def test_active_storage_cleans_a_losing_build_without_pruning
+    config = active_storage_configuration("race.xml")
+    storage = config.storage
+    baseline = ActiveStorage::Blob.pluck(:id)
+    lost_files = []
+    lost_keys = []
+    winner = nil
+    storage.define_singleton_method(:publish) do |source, **options|
+      lost_files.concat(options.fetch(:files).reject { |name| name == options.fetch(:root) })
+      source.define_singleton_method(:open) do |filename, &block|
+        if filename == options.fetch(:root)
+          lost_keys.concat(ActiveStorage::Blob.where.not(id: baseline).pluck(:key))
+          competing = Indexmap::Configuration.new
+          competing.base_url = config.base_url
+          competing.index_filename = config.index_filename
+          competing.atomic = true
+          competing.sections = config.sections
+          competing.storage = Indexmap::Storage::ActiveStorage.new(model: SitemapArtifact, public_url: config.base_url)
+          winner = Indexmap.create(configuration: competing)
+        end
+        super(filename, &block)
+      end
+      super(source, **options)
+    end
+    assert_raises(Indexmap::SupersededPublication) { Indexmap.create(configuration: config) }
+    assert_equal winner.size, ActiveStorage::Blob.where.not(id: baseline).count
+    assert lost_files.none? { |filename| storage.exist?(filename) }
+    assert lost_keys.none? { |key| ActiveStorage::Blob.service.exist?(key) }
+    assert winner.all? { |filename| storage.exist?(filename) }
+    assert Indexmap::Validator.new(configuration: config).validate!
+  end
+
+  def test_active_storage_does_not_activate_children_deleted_by_pruning
+    config = active_storage_configuration("prune-race.xml")
+    Indexmap.create(configuration: config)
+    previous = config.storage.read(config.index_filename)
+    blobs = ActiveStorage::Blob.pluck(:id).sort
+    config.storage.define_singleton_method(:publish) do |source, **options|
+      storage = self
+      source.define_singleton_method(:open) do |filename, &block|
+        storage.prune(root: options.fetch(:root), before: Time.now.utc + 1) if filename == options.fetch(:root)
+        super(filename, &block)
+      end
+      super(source, **options)
+    end
+    assert_raises(Indexmap::SupersededPublication) { Indexmap.create(configuration: config) }
+    assert_equal previous, config.storage.read(config.index_filename)
+    assert_equal blobs, ActiveStorage::Blob.pluck(:id).sort
+    assert Indexmap::Validator.new(configuration: config).validate!
+  end
+
+  def test_active_storage_preserves_a_commit_when_a_host_callback_raises
+    config = active_storage_configuration("callback.xml")
+    callback = proc do |record|
+      if record.filename == "callback.xml" && record.file.attached?
+        raise IOError, "host callback failed after commit"
+      end
+    end
+    SitemapArtifact.set_callback(:commit, :after, callback)
+    assert_raises(IOError) { Indexmap.create(configuration: config) }
+    assert config.storage.exist?(config.index_filename)
+    assert Indexmap::Validator.new(configuration: config).validate!
+  ensure
+    SitemapArtifact.skip_callback(:commit, :after, callback) if callback
+  end
+
+  def test_active_storage_reports_cleanup_failures_and_attempts_remaining_objects
+    config = active_storage_configuration("cleanup-error.xml")
+    Indexmap.create(configuration: config)
+    previous = config.storage.read(config.index_filename)
+    service = ActiveStorage::Blob.service
+    uploaded = []
+    attempted = []
+    service.define_singleton_method(:upload) do |key, io, **options|
+      super(key, io, **options)
+      uploaded << key
+      raise IOError, "original upload failure" if uploaded.size == 2
+    end
+    service.define_singleton_method(:delete) do |key|
+      attempted << key
+      raise IOError, "cleanup unavailable" if key == uploaded.first
+
+      super(key)
+    end
+    error = assert_raises(Indexmap::PublicationCleanupError) { Indexmap.create(configuration: config) }
+    assert_equal "original upload failure", error.cause.message
+    assert_equal [uploaded.first], error.failures.map { |failure| failure.fetch(:artifact) }
+    assert_equal uploaded.sort, attempted.sort
+    assert_equal previous, config.storage.read(config.index_filename)
+    assert Indexmap::Validator.new(configuration: config).validate!
+  ensure
+    if service
+      service.singleton_class.remove_method(:upload)
+      service.singleton_class.remove_method(:delete)
+      uploaded&.each { |key| service.delete(key) }
+    end
+  end
+
+  def test_active_storage_publishes_atomic_single_file_outputs
+    config = active_storage_configuration("single.xml")
+    config.format = :single_file
+    config.entries = [{loc: "https://example.com/page"}]
+    assert_equal ["single.xml"], Indexmap.create(configuration: config)
+    assert_equal ["single.xml"], Indexmap.create(configuration: config)
+    assert Indexmap::Validator.new(configuration: config).validate!
+  end
+
   private
+
+  def active_storage_configuration(root)
+    Indexmap.configuration.tap do |config|
+      config.index_filename = root
+      config.storage = Indexmap::Storage::ActiveStorage.new(model: SitemapArtifact, public_url: config.base_url)
+    end
+  end
 
   def wait_for(reader)
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 30

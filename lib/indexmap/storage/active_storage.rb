@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "stringio"
+require "securerandom"
 require "uri"
 
 module Indexmap
@@ -29,7 +30,7 @@ module Indexmap
           content_type: attachment_content_type
         )
 
-        File.new(filename: filename, body: body.to_s, content_type: attachment_content_type)
+        Artifact.new(filename: filename, body: body.to_s, content_type: attachment_content_type)
       end
 
       def read(filename)
@@ -95,27 +96,37 @@ module Indexmap
       end
 
       def publish(source, files:, root:, expected:)
+        uploads = []
+        created_records = []
+        root_blob = nil
+        build = SecureRandom.hex(16)
         unique = model.connection.indexes(model.table_name).any? do |index|
           index.unique && index.columns == [filename_column.to_s] && index.where.nil?
         end
         raise ConfigurationError, "Atomic Active Storage requires a unique filename index" unless unique
 
-        record = model.create_or_find_by!(filename_column => root)
+        check_revision!(root, expected)
         publication = Publication.new(root: root)
-        root_blob = nil
-        files.each do |filename|
-          valid = filename == root || (publication.child?(filename) && !exist?(filename))
-          unless valid
-            raise ConfigurationError, "Invalid immutable sitemap filename: #{filename}"
-          end
+        publication.validate_files!(files)
+        children = files.reject { |filename| filename == root }
+        children.each do |filename|
+          raise ConfigurationError, "Immutable sitemap already exists: #{filename}" if exist?(filename)
+        end
+        record = model.create_or_find_by!(filename_column => root)
+        [*children, root].each do |filename|
           source.open(filename) do |io|
-            blob = ::ActiveStorage::Blob.create_and_upload!(io: io, filename: ::File.basename(filename),
-              content_type: default_content_type, identify: false,
-              metadata: (filename == root) ? {indexmap_generation: publication.generation(files.first)} : {})
+            check_revision!(root, expected)
+            key = SecureRandom.hex(28)
+            uploads << key
+            metadata = {indexmap_build: build}
+            metadata[:indexmap_generation] = children.empty? ? nil : publication.generation(children.first) if filename == root
+            blob = ::ActiveStorage::Blob.create_and_upload!(key: key, io: io, filename: ::File.basename(filename),
+              content_type: default_content_type, identify: false, metadata: metadata)
             if filename == root
               root_blob = blob
             else
-              child = model.create_or_find_by!(filename_column => filename)
+              child = model.create!(filename_column => filename)
+              created_records << child.id
               child.public_send(attachment).attach(blob)
             end
           end
@@ -124,6 +135,10 @@ module Indexmap
           current = record.public_send(attachment)
           actual = current.attached? ? current.blob.id.to_s : nil
           raise SupersededPublication, "Sitemap changed while building: #{root}" unless actual == expected
+          present = model.where(filename_column => children).joins(:"#{attachment}_attachment").distinct.count(filename_column)
+          unless present == children.size
+            raise SupersededPublication, "Sitemap children removed while building: #{root}"
+          end
 
           if current.attached? && (version = publication.current_generation(self))
             archived = model.create_or_find_by!(filename_column => publication.archive(version))
@@ -132,7 +147,10 @@ module Indexmap
           current.attach(root_blob)
         end
       ensure
-        root_blob.purge if root_blob && !root_blob.attachments.exists?
+        # Also recognize a committed root when a host after_commit callback raises.
+        unless root_blob&.attachments&.exists?
+          cleanup_uploads(created_records || [], uploads || [], build: build)
+        end
       end
 
       def prune(root:, before:)
@@ -153,6 +171,28 @@ module Indexmap
       private
 
       attr_reader :model, :filename_column, :attachment, :default_content_type
+
+      def check_revision!(root, expected)
+        raise SupersededPublication, "Sitemap changed while building: #{root}" unless revision(root) == expected
+      end
+
+      def cleanup_uploads(records, keys, build:)
+        failures = []
+        records.each do |id|
+          model.find_by(model.primary_key => id)&.destroy!
+        rescue => error
+          failures << {artifact: "#{model.name}:#{id}", error: error}
+        end
+        keys.each do |key|
+          blob = ::ActiveStorage::Blob.find_by(key: key)
+          if blob && blob.metadata["indexmap_build"] == build && !blob.attachments.exists?
+            blob.purge
+          end
+        rescue => error
+          failures << {artifact: key, error: error}
+        end
+        raise PublicationCleanupError.new(failures) unless failures.empty?
+      end
 
       def blob_for(filename)
         record = find_record(filename)

@@ -10,8 +10,9 @@ module Indexmap
         new(...).ping
       end
 
-      def initialize(configuration: Indexmap.configuration)
+      def initialize(configuration: Indexmap.configuration, storage: nil)
         @configuration = configuration
+        @storage = storage
       end
 
       def ping
@@ -34,6 +35,10 @@ module Indexmap
 
       attr_reader :configuration
 
+      def storage
+        @storage ||= configuration.storage
+      end
+
       def host
         configuration.base_url
       end
@@ -44,10 +49,6 @@ module Indexmap
 
       def root_domain
         hostname.sub(/\Awww\./, "")
-      end
-
-      def storage
-        configuration.storage
       end
 
       def sitemap_files

@@ -3,6 +3,8 @@
 require "net/http"
 require "nokogiri"
 require "uri"
+require "pathname"
+require "stringio"
 
 module Indexmap
   class Parser
@@ -19,8 +21,49 @@ module Indexmap
       return reset! && entries if reset
       return @entries if defined?(@entries)
 
+      @entries = each_entry.to_a
+    end
+
+    # Unlike entries, this does not cache or retain the URL inventory.
+    def each_entry
+      return enum_for(:each_entry) unless block_given?
+
       visited = Set.new
-      @entries = parse_source(@source, visited: visited)
+      pending = [@source]
+      until pending.empty?
+        source = normalize_source(pending.pop)
+        next if source.nil? || visited.include?(source)
+
+        visited.add(source)
+        children = []
+        open_source(source) do |io|
+          reader = Nokogiri::XML::Reader.from_io(io, nil, nil, Nokogiri::XML::ParseOptions::NONET)
+          root = nil
+          reader.each do |node|
+            if node.node_type == Nokogiri::XML::Reader::TYPE_DOCUMENT_TYPE
+              raise ValidationError, "Sitemap DTDs are not allowed: #{source}"
+            end
+            next unless node.node_type == Nokogiri::XML::Reader::TYPE_ELEMENT
+
+            root = node.local_name if node.depth == 0
+            next unless node.depth == 1
+
+            if root == "sitemapindex" && node.local_name == "sitemap"
+              fields = read_fields(reader)
+              child = resolve_child_sitemap(source, fields.fetch("loc").to_s.strip)
+              children << child if child
+            elsif root == "urlset" && node.local_name == "url"
+              fields = read_fields(reader)
+              loc = fields.fetch("loc").to_s.strip
+              next if loc.empty?
+
+              lastmod = fields.fetch("lastmod").to_s.strip
+              yield Entry.new(loc: loc, lastmod: lastmod.empty? ? nil : lastmod, source_sitemap: source)
+            end
+          end
+        end
+        pending.concat(children.reverse)
+      end
     end
 
     def paths(reset: false)
@@ -60,33 +103,26 @@ module Indexmap
 
     attr_reader :index_filename, :storage
 
-    def parse_source(source, visited:)
-      normalized_source = normalize_source(source)
-      return [] if normalized_source.nil? || visited.include?(normalized_source)
+    def read_fields(reader)
+      fields = {"loc" => nil, "lastmod" => nil}
+      return fields if reader.self_closing?
 
-      visited.add(normalized_source)
-      xml = read_source(normalized_source)
-      return [] if xml.to_s.strip.empty?
+      text = nil
+      while reader.read
+        type = reader.node_type
+        if type == Nokogiri::XML::Reader::TYPE_END_ELEMENT
+          break if reader.depth == 1
 
-      document = Nokogiri::XML(xml)
-      document.remove_namespaces!
-
-      if document.at_xpath("/sitemapindex")
-        document.xpath("//sitemap/loc").flat_map do |node|
-          child_source = resolve_child_sitemap(normalized_source, node.text.to_s.strip)
-          next [] if child_source.nil?
-
-          parse_source(child_source, visited: visited)
+          text = nil if reader.depth == 2
+        elsif type == Nokogiri::XML::Reader::TYPE_ELEMENT && reader.depth == 2
+          name = reader.local_name
+          text = fields.key?(name) ? (fields[name] = +"") : nil
+        elsif text && [Nokogiri::XML::Reader::TYPE_TEXT, Nokogiri::XML::Reader::TYPE_CDATA,
+          Nokogiri::XML::Reader::TYPE_WHITESPACE, Nokogiri::XML::Reader::TYPE_SIGNIFICANT_WHITESPACE].include?(type)
+          text << reader.value
         end
-      else
-        document.xpath("//url").map do |url_node|
-          loc = url_node.at_xpath("loc")&.text.to_s.strip
-          next if loc.empty?
-
-          lastmod = url_node.at_xpath("lastmod")&.text.to_s.strip
-          Entry.new(loc: loc, lastmod: lastmod.empty? ? nil : lastmod, source_sitemap: normalized_source)
-        end.compact
       end
+      fields
     end
 
     def resolve_child_sitemap(parent_source, loc)
@@ -97,7 +133,7 @@ module Indexmap
         if remote_source?(loc)
           remote_child_source(parent_uri, loc)
         else
-          URI.join(parent_uri.to_s, loc).to_s
+          remote_child_source(parent_uri, URI.join(parent_uri.to_s, loc).to_s)
         end
       elsif remote_source?(loc)
         uri = URI.parse(loc)
@@ -120,12 +156,12 @@ module Indexmap
 
     def remote_child_source(parent_uri, loc)
       child_uri = URI.parse(loc)
-      return child_uri.to_s unless @rebase_remote_children
-      return child_uri.to_s if child_uri.host == parent_uri.host && child_uri.port == parent_uri.port && child_uri.scheme == parent_uri.scheme
-
-      child_uri.scheme = parent_uri.scheme
-      child_uri.host = parent_uri.host
-      child_uri.port = parent_uri.port
+      if @rebase_remote_children
+        child_uri.scheme = parent_uri.scheme
+        child_uri.host = parent_uri.host
+        child_uri.port = parent_uri.port
+      end
+      check_remote_origin!(child_uri)
       child_uri.to_s
     end
 
@@ -155,35 +191,59 @@ module Indexmap
       false
     end
 
-    def read_source(source)
+    def open_source(source)
       if remote_source?(source)
-        fetch_remote_source(source)
+        body = fetch_remote_source(source)
+        yield StringIO.new(body) if body && !body.strip.empty?
       elsif storage.exist?(source)
-        storage.read(source)
+        if storage.respond_to?(:open) && storage.respond_to?(:metadata)
+          check_size!(storage.metadata(source).fetch(:bytes))
+          storage.open(source) { |io| yield io }
+        else
+          body = storage.read(source)
+          check_size!(body.bytesize)
+          yield StringIO.new(body) unless body.strip.empty?
+        end
+      end
+    end
+
+    def check_size!(bytes)
+      raise ValidationError, "Sitemap exceeds #{Validator::MAX_BYTES} bytes" if bytes > Validator::MAX_BYTES
+    end
+
+    def check_remote_origin!(uri)
+      origin = URI.parse(@source)
+      unless uri.is_a?(URI::HTTP) && !uri.userinfo &&
+          [uri.scheme, uri.host, uri.port] == [origin.scheme, origin.host, origin.port]
+        raise ValidationError, "Remote sitemap must use the source origin: #{uri}"
       end
     end
 
     def fetch_remote_source(source, redirects_remaining: 3)
       uri = URI.parse(source)
+      check_remote_origin!(uri)
       request = Net::HTTP::Get.new(uri)
       request["User-Agent"] = "Indexmap::Parser/1.0"
+      redirected = nil
+      body = nil
 
-      response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: 10, read_timeout: 20) do |http|
-        http.request(request)
+      Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: 10, read_timeout: 20) do |http|
+        http.request(request) do |response|
+          check_size!(response.content_length) if response.content_length
+          body = +"" if response.is_a?(Net::HTTPSuccess)
+          if response.is_a?(Net::HTTPRedirection)
+            location = response["location"].to_s
+            redirected = URI.join(source, location).to_s unless location.empty? || redirects_remaining <= 0
+          end
+          bytes = 0
+          response.read_body do |chunk|
+            bytes += chunk.bytesize
+            check_size!(bytes)
+            body << chunk if body
+          end
+        end
       end
-
-      case response
-      when Net::HTTPSuccess
-        response.body
-      when Net::HTTPRedirection
-        return if redirects_remaining <= 0
-
-        location = response["location"].to_s
-        return if location.empty?
-
-        redirected = URI.join(source, location).to_s
-        fetch_remote_source(redirected, redirects_remaining: redirects_remaining - 1)
-      end
+      redirected ? fetch_remote_source(redirected, redirects_remaining: redirects_remaining - 1) : body
     rescue URI::InvalidURIError
       nil
     end

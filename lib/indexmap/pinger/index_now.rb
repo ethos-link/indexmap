@@ -10,8 +10,8 @@ module Indexmap
     class IndexNow < Base
       KEY_FORMAT = /\A[a-f0-9]{32}\z/
 
-      def initialize(configuration: Indexmap.configuration, connection: nil)
-        super(configuration: configuration)
+      def initialize(configuration: Indexmap.configuration, storage: nil, connection: nil)
+        super(configuration: configuration, storage: storage)
         @connection = connection
       end
 
@@ -119,7 +119,7 @@ module Indexmap
 
       def each_selection(cutoff:)
         sitemap_files.each do |filename|
-          validator = Validator.new(configuration: configuration, filename: filename)
+          validator = Validator.new(configuration: configuration, filename: filename, storage: storage)
           validator.each_entry do |entry|
             reason = if cutoff.nil?
               :all
@@ -180,7 +180,7 @@ module Indexmap
 
         response = index_now_connection.post("/indexnow") do |request|
           request.headers["Content-Type"] = "application/json"
-          request.body = payload.to_json
+          request.body = JSON.generate(payload)
         end
 
         if response.success?

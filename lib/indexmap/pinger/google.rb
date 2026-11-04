@@ -4,12 +4,13 @@ require "google/apis/searchconsole_v1"
 require "googleauth"
 require "json"
 require "stringio"
+require "tmpdir"
 
 module Indexmap
   module Pinger
     class Google < Base
-      def initialize(configuration: Indexmap.configuration, service: nil, credentials_builder: nil)
-        super(configuration: configuration)
+      def initialize(configuration: Indexmap.configuration, storage: nil, service: nil, credentials_builder: nil)
+        super(configuration: configuration, storage: storage)
         @service = service
         @credentials_builder = credentials_builder
       end
@@ -80,7 +81,7 @@ module Indexmap
       end
 
       def authorizer
-        json_key = JSON.parse(google_configuration.credentials).to_json
+        json_key = JSON.generate(JSON.parse(google_configuration.credentials))
         scope = "https://www.googleapis.com/auth/webmasters"
 
         return credentials_builder.call(credentials: json_key, scope: scope) if credentials_builder
@@ -92,12 +93,15 @@ module Indexmap
       end
 
       def sitemap_url_count(files)
-        files.each_with_object(Set.new) do |sitemap_file, urls|
-          Parser.new(source: sitemap_file, storage: storage).entries.each do |entry|
-            loc = entry.loc.to_s.strip
-            urls.add(loc) unless loc.empty?
+        Dir.mktmpdir("indexmap-google-count") do |directory|
+          urls = Validator::Duplicates.new(directory: directory)
+          files.each do |sitemap_file|
+            Parser.new(source: sitemap_file, storage: storage).each_entry do |entry|
+              urls.add(JSON.generate(entry.loc))
+            end
           end
-        end.count
+          urls.unique_count
+        end
       end
 
       def summarize_results(results, url_count:)
