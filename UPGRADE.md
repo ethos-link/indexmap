@@ -5,6 +5,12 @@ or pings sitemaps with `indexmap`.
 
 ## Unreleased
 
+Section entries are now consumed once per generation, including calculation of
+the index's `lastmod`. Existing array sources keep the same XML output. Apps may
+return fresh lazy enumerables from `config.sections`; do not reuse exhausted
+one-shot sources between refreshes. This does not add automatic partitioning or
+change the storage publication guarantees.
+
 Sitemap validation now rejects files larger than 52,428,800 uncompressed bytes,
 URL sets and indexes with more than 50,000 entries, missing or incorrect sitemap
 namespaces, DTDs, missing URL locations, cyclic indexes, unsafe child paths, and

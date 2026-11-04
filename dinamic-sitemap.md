@@ -1,10 +1,29 @@
 # Dynamic sitemaps and IndexNow delivery
 
 Status: correctness, selection visibility, and opt-in robots delivery are
-implemented in the working tree, not released. See the README and
+merged in PR #21, not released. See the README and
 `docs/search-engine-ping.md` for current usage and `UPGRADE.md` for contract
 changes. Streaming, atomic collection publication, and app migrations remain
 proposed. The scope is reusable behavior for Reviato, Nuntio, and Places.
+
+## Delivery status
+
+PR #21 is merged; PR #22 remains open. Neither is released. Usage belongs in the README and
+`docs/search-engine-ping.md`; this document distinguishes remaining design from
+implemented capabilities.
+
+| Capability | Status |
+| --- | --- |
+| Provider resolution, validation limits, graph safety, and cutoff fixes | Implemented in [PR #21](https://github.com/ethos-link/indexmap/pull/21). |
+| IndexNow selection export, attempt reporting, timeouts, and partial results | Implemented in PR #21; exports require operator retention, not a gem ledger. |
+| Configuration-backed robots endpoint | Implemented in PR #21; mounting and deployment policy remain opt-in. |
+| Single-pass section consumption and index date calculation | Implemented in [PR #22](https://github.com/ethos-link/indexmap/pull/22), targeting main after PR #21 merged. |
+| Complete bounded-memory streaming and automatic partitions | Not implemented. Single-pass enumeration is only a prerequisite. |
+| Immutable generations, atomic activation, coordination, and retention | Not implemented; current publication is sequential. |
+| Shared Rails sitemap delivery | Not implemented; host serving remains in place. |
+| Host migrations and real GoodJob/Solid Queue integration verification | Not completed; existing generation entrypoints and backend configuration are preserved. |
+| Automatic batch retries | Not implemented. |
+| Durable private history, inventory diffs, and crash reconciliation | Deferred behind the private-store and content-version decision gates. |
 
 Indexmap should own sitemap generation, validation, publication, optional Rails
 delivery, robots formatting, and inspectable IndexNow submissions. Applications
@@ -25,7 +44,9 @@ for the first release.
 ## Implementation readiness and code budget
 
 Increments 1a, 1b, and 1c below are implemented, together with transport timeouts
-and partial-result preservation. Automatic retries remain deferred. The later
+and partial-result preservation. A follow-up makes section entry consumption and
+index date calculation a single pass; full streaming remains proposed.
+Automatic retries remain deferred. The later
 storage work is a direction with acceptance criteria, not a complete adapter
 specification. Before implementing it, settle activation/locking semantics and
 measure the actual pipeline. Durable history and content diffs remain deferred.
