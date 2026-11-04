@@ -79,6 +79,20 @@ def validate_release_main!
   end
 end
 
+def tag_prepared_release(version)
+  abort "Tag releases from main." unless current_branch == "main"
+  abort "Release requires a clean working tree." unless clean_worktree?
+  validate_release_tag!(version)
+  unless File.read("CHANGELOG.md").match?(/^## \[#{Regexp.escape(version)}\]/)
+    abort "Missing changelog entry for #{version}; run release:prepare on main first."
+  end
+  validate_release_main!
+
+  tag = release_tag(version)
+  sh "git", "tag", "-a", tag, "-m", "Release #{tag}"
+  sh "git", "push", "origin", tag
+end
+
 def validate_release_tag!(version)
   tag = release_tag(version)
   if local_release_tag_exists?(tag)
@@ -171,7 +185,7 @@ task :release do
 end
 
 namespace :release do
-  desc "Prepare, commit, and push changelog/version from main; no tag."
+  desc "Prepare, commit, tag, and push a release from main for CI publishing."
   task :prepare, [:target] do |_task, args|
     branch = current_branch
     validate_release_branch!(branch)
@@ -192,27 +206,16 @@ namespace :release do
     sh "git", "add", "--", "CHANGELOG.md", "lib/indexmap/version.rb"
     sh({"INDEXMAP_RELEASE_COMMIT" => "1"}, "git", "commit", "-m", message)
     sh "git", "push", "origin", "main"
+    tag_prepared_release(version)
 
-    puts "Prepared and pushed #{release_tag(version)} on main."
-    puts "Then run bundle exec rake release:tag."
+    puts "Pushed #{release_tag(version)}. GitHub Actions will publish the gem and create the release."
   rescue ArgumentError, RuntimeError => e
     abort e.message
   end
 
-  desc "Tag and push the prepared release from clean, updated main."
+  desc "Resume a prepared release by tagging and pushing from clean, updated main."
   task :tag do
-    abort "Tag releases from main." unless current_branch == "main"
-    abort "Release requires a clean working tree." unless clean_worktree?
-    version = Indexmap::VERSION
-    validate_release_tag!(version)
-    unless File.read("CHANGELOG.md").match?(/^## \[#{Regexp.escape(version)}\]/)
-      abort "Missing changelog entry for #{version}; run release:prepare on main first."
-    end
-    validate_release_main!
-
-    tag = release_tag(version)
-    sh "git", "tag", "-a", tag, "-m", "Release #{tag}"
-    sh "git", "push", "origin", tag
+    tag_prepared_release(Indexmap::VERSION)
   rescue ArgumentError, RuntimeError => e
     abort e.message
   end

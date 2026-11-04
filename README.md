@@ -629,22 +629,28 @@ bundle exec rake 'release:prepare[0.9.0]'
 
 The task prepends the changelog and updates the version, preserving existing
 history. It commits those two files on `main` with a Conventional Commit and
-`What:`, `Why:`, and `Where:` in the body, then pushes `main`. Review any
-release-status notices before running it. Hooks remain enabled; the branch
+`What:`, `Why:`, and `Where:` in the body, pushes `main`, then creates and pushes
+the annotated version tag. Review release-status notices before running it.
+Hooks remain enabled; the branch
 protection hook permits only the task's version and changelog commit on `main`.
 Ordinary changes still require a topic branch. Remote branch protections must
 permit the maintainer to push this release commit.
 
-After preparation succeeds, create and push the annotated release tag:
+Preparation handles every local release step. The pushed tag triggers GitHub
+Actions to publish the gem and create the GitHub release. Tagging requires clean
+`main` matching `origin/main`, an unused version tag, and a matching changelog
+section. Gem metadata links documentation to that version's tag.
+
+If preparation stops after creating the release commit, resolve the failure and
+push that existing commit to `main`. Resume tagging with:
 
 ```bash
 bundle exec rake release:tag
 ```
 
-Tagging requires a clean `main` matching `origin/main`, an unused version tag,
-and a matching changelog section. Gem metadata links documentation to that
-version's tag. If a push fails, resolve the failure and push the existing release
-commit before tagging; do not rerun preparation with the same version.
+This recovery command uses the already prepared version. Do not rerun preparation
+with the same version. If the annotated tag already exists locally after a tag
+push failure, retry `git push origin vX.Y.Z` with that version's tag.
 
 The `Release` workflow then runs tests, publishes the gem to RubyGems,
 and creates the GitHub release from the changelog entry.
