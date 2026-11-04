@@ -5,6 +5,131 @@ or pings sitemaps with `indexmap`.
 
 ## Unreleased
 
+### Host loader and rendered artifacts
+
+The install generator now defines `Indexmap::HostConfiguration.apply` instead of
+`IndexmapConfiguration.apply`. When adopting the new template, move the existing
+loader into `module Indexmap; module HostConfiguration; ...; end; end` and update
+its bottom-of-file apply call, route mounts, jobs, scripts, and tests. Keep the
+existing configure block, mutex, and idempotent `@applied` guard. Inside the new
+namespace, qualify host constants that overlap gem names (for example `::Entry`
+for a host model, versus `Indexmap::Entry` for a sitemap value). Use:
+
+```ruby
+Indexmap::HostConfiguration.apply if defined?(Indexmap::Configuration)
+```
+
+An existing host-owned loader can continue running while you migrate: the gem
+never calls it by name. Do not mix old and new loader modules, as each has its own
+application guard. Apply the host configuration before creating an operation.
+
+The rendered file value is now `Indexmap::Artifact`, replacing
+`Indexmap::Storage::File`. Its `filename`, `body`, `content_type`, and `basename`
+interface is unchanged. Update custom adapters, type checks, and direct
+constructor calls; replace internal `require "indexmap/storage/file"` with
+`require "indexmap"`. The old constant and require path are removed. `::File`
+always means Ruby's filesystem class.
+
+### Storage resolution and publication lifecycle
+
+`Creator`, `TaskRunner`, `Validator`, and pinger instances now resolve a storage
+callable lazily once and retain that adapter. Nested generation, validation,
+IndexNow key handling, and submission share it. Create a fresh operation instance
+after changing storage configuration or tenant/context; do not reuse a runner or
+pinger across different destinations. `Indexmap.create` already creates a new
+creator each time. The optional `storage:` constructor keyword selects an explicit
+adapter. Direct reads of `config.storage` still resolve the callable each time.
+
+Filesystem publication now copies validated files and the previous root into
+private `.indexmap-builds/` staging on the destination filesystem, outside the
+per-root lock. Short locked sections create the staging lease and activate files
+with same-filesystem renames. Keep that private directory writable and exclude
+hidden paths from static HTTP serving. Allow disk space for source staging,
+destination staging, and retained generations. Do not remove active staging
+directories manually. Pruning reclaims abandoned staging after its grace period
+and skips directories whose build lock is held; returned deleted paths can now
+include these private directories. Normal failures remove staging immediately.
+
+Filesystem listing now scopes traversal by the literal prefix's directory and
+leading filename fragment. It excludes symlinks and hidden paths, including
+private staging, and requires normalized relative prefixes (no traversal,
+absolute paths, or redundant separators). Replace any reliance on symlink entries with actual keys under the storage root. A listing without a
+prefix still intentionally scans the complete visible tree.
+
+Atomic Active Storage checks the expected revision before uploading and again
+before each upload. A failed or superseded build destroys its newly created child
+records and purges its blobs immediately, including a partial upload whose blob
+was saved before the service failed. Uploads and cleanup stay outside the root
+row lock. A committed root is preserved even if a host `after_commit` callback
+raises. Activation also checks that children still exist, so pruning an unusually
+old in-flight build aborts it rather than publishing missing children.
+
+Concurrent builds can still perform some speculative uploads before one wins;
+optimistic publication cannot avoid work already in flight. Process death and
+storage outages can also prevent immediate cleanup. Keep scheduled pruning,
+unattached-blob cleanup, and working attachment purge jobs. A
+`Indexmap::PublicationCleanupError` reports cleanup failures through `failures`
+(each contains `artifact` and `error`), with the original publication exception as
+its cause. Retain those private diagnostics; a failed service deletion can require
+cleanup by object key even when Active Storage already removed the blob row.
+
+### Maintainer release workflow
+
+`release:prepare[...]` now requires a topic branch and only updates the version
+and changelog for review. Commit using the repository's normal hooks and merge
+to `main`. From clean, updated `main`, run `bundle exec rake release:tag` to create
+and push the release tag. Scripts that relied on preparation committing or pushing
+must split those steps. No hooks are bypassed and no release commit is made on
+`main`. See the [release instructions](README.md#release).
+
+### Task loading, parsing, and documentation
+
+For an existing lazy installation, edit the generated Rakefile loader to check
+Rake's collected tasks as well as `ARGV` (Rails removes the command from `ARGV`
+before loading the Rakefile):
+
+```ruby
+indexmap_tasks_requested = Rake.application.options.show_tasks ||
+  ARGV.any? { |argument| ["-T", "--tasks"].include?(argument) }
+require "indexmap/tasks" if indexmap_tasks_requested ||
+  (Rake.application.top_level_tasks + ARGV).any? { |argument| argument.start_with?("indexmap:") }
+```
+
+Keep this block before `require_relative "config/application"`. The installer
+preserves existing task loaders, so rerunning it does not replace a stale block.
+Verify `bin/rails indexmap:sitemap:create`, `bin/rails --tasks`, and
+`bundle exec rake indexmap:sitemap:validate`. The generated initializer now checks
+`defined?(Indexmap::Configuration)` before applying settings and constructs the
+filesystem adapter once inside `apply`. Apply those edits to existing initializers
+if needed, together with the host-loader rename above.
+
+`Parser` remote children and redirects must now keep the explicit source URL's
+scheme, host, and port; userinfo is rejected. Cross-origin references raise
+`Indexmap::ValidationError` before their target is requested. To inspect a deployed
+sitemap through a local origin, use `rebase_remote_children: true` deliberately;
+this rebases child references, not redirects. Pass only trusted remote root URLs:
+the parser is not an SSRF filter for arbitrary user-supplied roots or DNS results.
+Remote responses and local files are capped at 52,428,800 bytes per document, and
+DTDs are rejected. Streaming XML parsing can raise `Nokogiri::XML::SyntaxError`
+for malformed XML that the older DOM parser recovered silently. Fix malformed or
+oversized/DTD-bearing documents and cross-origin references before upgrading.
+Storage-root parsing resolves children through storage and does not fetch remote
+child URLs.
+
+Use `Parser#each_entry` for incremental enumeration without the `entries` cache;
+`entries` and `paths` still collect results. Google URL counting now streams XML
+and uses temporary disk for exact deduplication. Provision temporary space for
+that operation as well as generation/validation.
+
+Create stages, validates, and publishes; it does not pretty-print. Only
+`TaskRunner#create` and its rake task run callbacks and IndexNow key handling.
+The optional format task remains for legacy output. See the
+[deployment guide](docs/deployment.md) for static/dynamic sources and delivery,
+robots policy, and development/production checks. Main documentation describes
+unreleased features; use tagged documentation while consuming 0.8.2.
+
+### Generation, publication, and delivery
+
 Generation now stages XML on temporary disk and partitions index sections by
 `max_urls` and `max_bytes`. Defaults are the sitemap protocol limits. The first
 legacy partition keeps its configured name; later files append `-002.xml`, etc.
@@ -37,7 +162,7 @@ Use native bounded Active Job retries in host jobs for this transient condition.
 The same entrypoints support GoodJob and Solid Queue. The opt-in sitemap
 controller serves configured roots and current/retained atomic children using
 storage metadata and streaming reads. See [dynamic sitemap usage](docs/dynamic-sitemaps.md)
-for routes, cache policy, adapter capabilities, and app-specific adoption steps.
+for routes, cache policy, adapter capabilities, and adoption steps.
 
 Schedule `indexmap:sitemap:prune` separately. `RETENTION_HOURS` defaults to 48 and
 must be at least 1; choose a grace period covering cached roots and rollbacks.

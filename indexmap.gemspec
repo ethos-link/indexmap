@@ -15,14 +15,14 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 3.2.0"
 
   repo = "https://github.com/ethos-link/indexmap"
-  branch = "main"
+  reference = "v#{spec.version}"
 
   spec.metadata = {
     "homepage_uri" => spec.homepage,
     "source_code_uri" => repo,
     "bug_tracker_uri" => "#{repo}/issues",
-    "changelog_uri" => "#{repo}/blob/#{branch}/CHANGELOG.md",
-    "documentation_uri" => "#{repo}/blob/#{branch}/README.md",
+    "changelog_uri" => "#{repo}/blob/#{reference}/CHANGELOG.md",
+    "documentation_uri" => "#{repo}/blob/#{reference}/README.md",
     "funding_uri" => "https://www.reviato.com/",
     "github_repo" => "ssh://github.com/ethos-link/indexmap",
     "allowed_push_host" => "https://rubygems.org",

@@ -1,5 +1,9 @@
 # Database-backed sitemaps
 
+> This guide describes unreleased main. For RubyGems 0.8.2, use the
+> [tagged documentation](https://github.com/ethos-link/indexmap/tree/v0.8.2).
+> See [release status](../README.md#release-status) and [UPGRADE.md](../UPGRADE.md).
+
 Indexmap generates sitemap artifacts from app-owned sources. Generation can run
 in a job or rake task; HTTP requests serve published artifacts and never query
 source records. No model concern, queue backend, schedule, or content eligibility
@@ -11,11 +15,9 @@ Run `bin/rails generate indexmap:install`, then edit the generated configure blo
 
 ```ruby
 config.base_url = -> { ENV.fetch("PUBLIC_ORIGIN") }
-config.storage = -> do
-  Indexmap::Storage::Filesystem.new(
-    path: Rails.root.join("storage/sitemaps"), public_url: config.base_url
-  )
-end
+config.storage = Indexmap::Storage::Filesystem.new(
+  path: Rails.root.join("storage/sitemaps"), public_url: config.base_url
+)
 config.atomic = true
 config.max_urls = 45_000
 config.sections = -> { Sitemap.sections }
@@ -68,7 +70,8 @@ differ from older Nokogiri-reformatted output while retaining XML meaning.
 
 Atomic mode is opt-in and requires `revision(root)` and
 `publish(source, files:, root:, expected:)` capabilities. An unsupported adapter
-fails before sources are evaluated. Existing six-method adapters keep legacy
+fails before sources are evaluated. See the [complete storage contract](storage.md)
+before implementing a custom adapter. Existing six-method adapters keep legacy
 sequential publication unless explicitly extended. Named outputs inherit atomic
 mode and limits and can override them independently.
 
@@ -79,12 +82,16 @@ cannot overwrite a root published by another writer. Retry by rebuilding current
 eligible data. Queue concurrency reduces wasted work but does not replace this
 check, including for direct rake invocations.
 
-Filesystem activation uses a per-root `flock` and same-filesystem atomic file
-replacement. The destination must be a trusted local/shared filesystem with
-working cross-process locks and atomic rename semantics. This is not a guarantee
-for arbitrary NFS mounts or object-store filesystem gateways. Storage keys cannot
-escape the configured root through traversal or existing symlinks. Published
-immutable child keys cannot be overwritten through the built-in write APIs.
+Filesystem publication copies into private destination staging without holding
+the per-root lock, including the previous root archive. Short locked sections
+establish a staging lease and activate complete files with same-filesystem
+renames; retirement timestamps are set at activation. Pruning skips live build
+leases and reclaims abandoned staging after the grace period. Exclude hidden
+`.indexmap-builds/` paths from HTTP serving and provision destination staging
+space. The destination must provide cross-process `flock` and atomic rename
+semantics; arbitrary NFS mounts or object-store filesystem gateways may not.
+Storage keys cannot escape through traversal or existing symlinks. Published
+immutable child keys cannot be overwritten through built-in write APIs.
 
 For Active Storage, keep the host-owned artifact model with `has_one_attached`
 and a database unique index on its filename column. Install Active Storage through
@@ -100,7 +107,10 @@ Edit the generated migration to add the unique index after checking existing
 schema and data; do not add a duplicate index if one already exists. Atomic mode
 checks that an unconditional single-column unique index exists. Root blobs carry
 the generation identifier in native Active Storage metadata and are uploaded
-before a short host-record lock attaches them. Reading the active generation
+before a short host-record lock attaches them. Expected revisions are checked
+before uploads too; failed or losing builds immediately clean up the child
+records and blobs they created. A race can still waste an in-flight upload, but
+normal failure cleanup does not wait for pruning. Reading the active generation
 requires no object-store download under that lock. Generation and uploads run
 outside that database transaction. SQLite lock contention can raise a
 transient database error; preserve the host's explicit retry policy.
@@ -111,8 +121,12 @@ excluded from shared HTTP delivery. Old children remain available for cached
 roots. Active Storage archive age follows the artifact record, not the older
 blob's creation date. The model's normal attachment lifecycle handles purging
 when expired artifact records are destroyed. Ensure its purge jobs have workers;
-use the host's existing unattached-blob cleanup for uploads interrupted before
-an artifact could be attached.
+use the host's existing unattached-blob cleanup for process crashes. Cleanup
+failures raise `Indexmap::PublicationCleanupError` with failed artifact/key
+diagnostics and the original publication exception as its cause. Preserve those
+private diagnostics: if object deletion fails after a blob row is destroyed,
+cleanup by object key may be necessary. Host callback errors after a committed
+activation do not delete that published generation.
 
 Keep the destination shared by workers and every serving instance. A container's
 `public/` directory is not automatically shared or persistent. In legacy mode,
@@ -134,7 +148,7 @@ class SitemapRefreshJob < ApplicationJob
   retry_on Indexmap::SupersededPublication, wait: :polynomially_longer, attempts: 3
 
   def perform(_version = nil)
-    IndexmapConfiguration.apply
+    Indexmap::HostConfiguration.apply
     Indexmap::TaskRunner.new.create
   end
 end
@@ -176,7 +190,7 @@ This example assumes root-level storage keys and `index_filename = "sitemap.xml"
 
 ```ruby
 require "indexmap/sitemaps_controller"
-IndexmapConfiguration.apply
+Indexmap::HostConfiguration.apply
 
 Rails.application.routes.draw do
   get "/sitemap.xml", to: Indexmap::SitemapsController.action(:show),
@@ -231,7 +245,10 @@ that your caches can still serve, including stale revalidation and deployment
 rollbacks. Retention is an operational policy, not a promise about arbitrary
 crawler caches. Pruning is locked against activation, preserves the current
 publication, removes expired archives and unreferenced owned children, and leaves
-other outputs and unrelated files alone. Failed-build orphans age out too.
+other outputs and unrelated files alone. Abandoned destination staging and
+crash-left orphans age out too. Live filesystem staging remains protected by its
+build lock. Active Storage activation rechecks child existence, so pruning an
+old in-flight build forces a rebuild instead of activating an incomplete root.
 Active Storage pruning destroys owned artifact records and delegates blob cleanup
 to normal attachment jobs, avoiding object-store deletes under the root lock.
 
@@ -250,19 +267,17 @@ of deletion. Durable history and automatic inventory diffs are not implemented.
 Release and consume the gem before removing host implementations. Local path
 overrides are for verification only and must not be committed to applications.
 
-- Reviato: keep editorial/indexing policy and GoodJob scheduling. Verify the
-  existing artifact filename index, remove the old prune callback when enabling
-  atomic mode, and replace fixed child-name routes with explicit root/generated
-  routes. Keep application permission and system-context checks in host tests.
-- Places: keep `Place.indexable`, directory thresholds, canonical path generation,
-  and the daily schedule. Replace manual staging/promotion/cleanup with the gem
-  operation, choose shared persistent storage, and use gem partitions rather than
-  materializing and slicing all country entries. Preserve robots exclusions and
-  explicit production/preview policy. Remove static XML or configure static
-  serving deliberately before enabling the controller.
-- Nuntio: retain the database-free build for static marketing content. Only add a
-  runtime refresh when there is a real public database source. Keep private
-  publishing records excluded and use the marketing indexing flag for robots.
+1. Keep eligibility scopes, canonical URLs, content dates, and scheduling in the
+   host. Static manifests can stay database-free; database sources should return
+   fresh lazy enumerables.
+2. Choose storage shared by refresh workers and serving instances. Verify the
+   artifact filename index when using atomic Active Storage.
+3. Add explicit root and generated-child routes, or configure static/CDN delivery.
+   Preserve legacy child delivery through the cached-root transition.
+4. Replace filename-based cleanup callbacks with output-scoped pruning. Preserve
+   the host's robots exclusions and production/preview indexing policy.
+5. Verify the lifecycle in development, then staging, before enabling public
+   indexing and search-engine submission. See the [deployment guide](deployment.md).
 
 Validate actual public root/child URLs, headers, key verification files, workers,
 and queue failure reporting in each host. Gem integration tests exercise real

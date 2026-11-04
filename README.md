@@ -14,6 +14,16 @@ It is designed for Rails apps that want:
 
 By default, `indexmap` writes a sitemap index plus one or more child sitemap files. For simpler sites, it also supports `:single_file` mode, which writes a single `urlset` directly to `sitemap.xml`.
 
+## Release status
+
+This branch documents **unreleased main**, including partitioned generation,
+atomic publication, sitemap and robots controllers, and IndexNow reports/retries.
+The latest version recorded in this repository is **0.8.2**. For that release,
+use the [0.8.2 README](https://github.com/ethos-link/indexmap/blob/v0.8.2/README.md)
+and [changelog](CHANGELOG.md). Installing from RubyGems does not provide the
+unreleased features below. Use a source checkout for evaluation until the next
+release, and read [UPGRADE.md](UPGRADE.md) before adopting it.
+
 ## Installation
 
 Add this line to your application's Gemfile:
@@ -44,6 +54,12 @@ directory prefix such as `sitemaps/`.
 
 ## Documentation
 
+- [How Indexmap works](docs/architecture.md): pipeline diagram and entrypoints.
+- [Domain terms](docs/domain-terms.md): sections, partitions, outputs, publications,
+  roots, and entry types.
+- [Deployment guide](docs/deployment.md): development and production, static and
+  database-backed sources, static files or Rails delivery, and robots.txt.
+- [Storage contract](docs/storage.md): legacy, streaming, atomic, and pruning APIs.
 - [Dynamic sitemaps](docs/dynamic-sitemaps.md): streaming and partitions, atomic
   publication, Rails delivery, retention, jobs, and host adoption.
 - [Search engine ping](docs/search-engine-ping.md): Google Search Console
@@ -66,10 +82,15 @@ sections = [
   )
 ]
 
-Indexmap::Writer.new(
-  sections: sections,
-  base_url: "https://example.com"
-).write
+Indexmap.configure do |config|
+  config.base_url = "https://example.com"
+  config.storage = Indexmap::Storage::Filesystem.new(
+    path: "public", public_url: config.base_url
+  )
+  config.sections = sections
+end
+
+Indexmap.create
 ```
 
 ## Rails Usage
@@ -81,7 +102,7 @@ bin/rails generate indexmap:install
 ```
 
 The generator creates `config/initializers/indexmap.rb` with an idempotent
-`IndexmapConfiguration.apply` loader and adds conditional `indexmap/tasks`
+`Indexmap::HostConfiguration.apply` loader and adds conditional `indexmap/tasks`
 loading to the application's `Rakefile`. This preserves `bin/rails --tasks` and
 the `indexmap:*` tasks without loading Indexmap during normal Rails boot.
 
@@ -90,12 +111,10 @@ Customize the `Indexmap.configure` block inside the generated initializer:
 ```ruby
 Indexmap.configure do |config|
   config.base_url = -> { "https://example.com" }
-  config.storage = -> do
-    Indexmap::Storage::Filesystem.new(
-      path: Rails.public_path,
-      public_url: config.base_url
-    )
-  end
+  config.storage = Indexmap::Storage::Filesystem.new(
+    path: Rails.public_path,
+    public_url: config.base_url
+  )
   config.sections = -> do
     [
       Indexmap::Section.new(
@@ -113,7 +132,7 @@ Runtime callers and jobs must apply the generated configuration before using
 Indexmap:
 
 ```ruby
-IndexmapConfiguration.apply
+Indexmap::HostConfiguration.apply
 Indexmap.create
 ```
 
@@ -124,9 +143,11 @@ Then run:
 
 ```bash
 bin/rails indexmap:sitemap:create
-bin/rails indexmap:sitemap:format
 bin/rails indexmap:sitemap:validate
 ```
+
+Creation already validates. `indexmap:sitemap:format` optionally pretty-prints
+legacy XML after publication; it rejects atomic outputs.
 
 `indexmap:sitemap:create` is the main task. It stages partitioned XML on temporary
 disk, validates the complete result, then publishes to configured storage.
@@ -163,7 +184,7 @@ class SitemapRefreshJob < ApplicationJob
   )
 
   def perform(_version)
-    IndexmapConfiguration.apply
+    Indexmap::HostConfiguration.apply
     Indexmap::TaskRunner.new.create
   end
 end
@@ -187,7 +208,7 @@ class SitemapRefreshJob < ApplicationJob
     duration: 30.minutes, on_conflict: :block
 
   def perform(_version)
-    IndexmapConfiguration.apply
+    Indexmap::HostConfiguration.apply
     Indexmap::TaskRunner.new.create
   end
 end
@@ -290,7 +311,7 @@ In the application's `config/routes.rb`, load and mount the endpoint explicitly:
 
 ```ruby
 require "indexmap/robots_controller"
-IndexmapConfiguration.apply
+Indexmap::HostConfiguration.apply
 
 Rails.application.routes.draw do
   get "/robots.txt", to: Indexmap::RobotsController.action(:show)
@@ -337,7 +358,7 @@ For sites that only want one `sitemap.xml` file:
 ```ruby
 Indexmap.configure do |config|
   config.base_url = -> { "https://example.com" }
-  config.storage = -> { Indexmap::Storage::Filesystem.new(path: Rails.public_path, public_url: config.base_url) }
+  config.storage = Indexmap::Storage::Filesystem.new(path: Rails.public_path, public_url: config.base_url)
   config.format = :single_file
   config.entries = -> do
     [
@@ -360,7 +381,7 @@ outputs write through the same configured storage as the default output.
 ```ruby
 Indexmap.configure do |config|
   config.base_url = -> { "https://example.com" }
-  config.storage = -> { Indexmap::Storage::Filesystem.new(path: Rails.root.join("storage/sitemaps"), public_url: config.base_url) }
+  config.storage = Indexmap::Storage::Filesystem.new(path: Rails.root.join("storage/sitemaps"), public_url: config.base_url)
   config.sections = -> { Sitemap.sections }
 
   config.output :insights_data do |output|
@@ -386,8 +407,10 @@ Indexmap.create(:insights_data)
 Named outputs inherit `base_url` and `format` from the main configuration unless
 you override them. Storage is configured once and shared by every output.
 
-`Indexmap.create` uses the same safe publish flow as the rake task: build,
-format, validate, and then write the final XML file or files to storage.
+`Indexmap.create` stages XML, validates it, then publishes the selected output.
+Only `Indexmap::TaskRunner#create` (also used by the create task) handles the
+IndexNow key file and `after_create` callbacks. Formatting is a separate optional
+operation for legacy outputs; atomic outputs must be regenerated.
 
 ### Storage
 
@@ -435,17 +458,26 @@ storage.delete(filename)
 storage.public_url(filename)
 ```
 
+Atomic publication, pruning, and streamed HTTP delivery require additional
+capabilities. See the [storage contract](docs/storage.md) for signatures,
+return values, and adapter requirements. Each operation instance resolves a
+storage callable once and shares the adapter with its collaborators. Create a
+fresh runner/pinger after changing destinations or tenant context. Direct reads
+of `config.storage` still resolve the callable; construct an adapter once in the
+host loader when its settings are fixed for the process.
+
 ### Deferred Dynamic Sections
 
 Use `after_create` when `indexmap:sitemap:create` should publish the default
 sitemap first, then schedule slower dynamic sections for the background. The
-callback runs only after the generated files have been formatted, validated, and
-replaced successfully.
+callback runs only after the default output has been validated and published
+and configured IndexNow key-file handling has succeeded. It also runs for
+`Indexmap::TaskRunner#create`; `Indexmap.create` does not run callbacks.
 
 ```ruby
 Indexmap.configure do |config|
   config.base_url = -> { "https://example.com" }
-  config.storage = -> { Indexmap::Storage::Filesystem.new(path: Rails.root.join("storage/sitemaps"), public_url: config.base_url) }
+  config.storage = Indexmap::Storage::Filesystem.new(path: Rails.root.join("storage/sitemaps"), public_url: config.base_url)
   config.sections = -> { Sitemap.sections }
 
   config.output :insights_data do |output|
@@ -465,14 +497,17 @@ Then the job can stay small:
 ```ruby
 class Insights::SitemapRefreshJob < ApplicationJob
   def perform
-    IndexmapConfiguration.apply
+    Indexmap::HostConfiguration.apply
     Indexmap.create(:insights_data)
   end
 end
 ```
 
-This keeps deploys fast: the deploy only waits for `indexmap:sitemap:create`,
-while database-dependent output is refreshed by the job backend.
+The default output and named output are independent roots. List both public
+root URLs in `config.robots.sitemaps` (or the static robots file) and submit each
+separately if needed; named outputs are not automatically linked into the default
+index. Publish the named output before advertising its URL. A deferred job can
+fail after the default root is published, so monitor it separately.
 
 ## Validation And Parsing
 
@@ -526,6 +561,10 @@ present, `indexmap:index_now:ping` skips IndexNow submission.
 
 ## Development
 
+The gem requires Ruby 3.2+ and Active Support/railties 7.1+. CI exercises the
+Rails 7.1 floor on Ruby 3.2 and Rails 8.1.4 integration on Ruby 4.0, alongside the
+normal Ruby matrix. See [integration checks](docs/dynamic-sitemaps.md#integration-checks-from-a-source-checkout).
+
 Run tests:
 
 ```bash
@@ -572,9 +611,9 @@ Install [git-cliff](https://git-cliff.org/) locally before preparing a
 release. The release task prepends the next `CHANGELOG.md` section from
 Conventional Commits.
 
-Before preparing a release, make sure you are on `main` or `master` with a
-clean worktree. If the release contains a breaking public-contract change,
-update `UPGRADE.md` with the host-app migration steps first.
+Before preparing a release, create a topic branch from updated `main` (for
+example `release/0.9.0`) with a clean worktree. If the release changes a public
+contract, update `UPGRADE.md` with the host-app migration steps first.
 
 Then run one of:
 
@@ -582,15 +621,24 @@ Then run one of:
 bundle exec rake 'release:prepare[patch]'
 bundle exec rake 'release:prepare[minor]'
 bundle exec rake 'release:prepare[major]'
-bundle exec rake 'release:prepare[0.1.0]'
+bundle exec rake 'release:prepare[0.9.0]'
 ```
 
-The task will:
+The task prepends the changelog and updates the version, preserving existing
+history. Review the diff and update release-status notices when the features
+become part of that release. Commit on the topic branch using a Conventional
+Commit with `What:`, `Why:`, and `Where:` in the body, and merge through a PR to
+`main`. Preparation does not commit, tag, push, or bypass hooks.
 
-1. Prepend the next `CHANGELOG.md` section with `git-cliff`.
-1. Update `lib/indexmap/version.rb`.
-1. Commit the release changes.
-1. Create and push the `vX.Y.Z` tag.
+After the PR is merged, switch to `main`, pull the merged result, and run:
+
+```bash
+bundle exec rake release:tag
+```
+
+This requires a clean `main` matching `origin/main`, an unused version tag, and a
+matching changelog section. It creates and pushes the annotated tag without
+committing to `main`. Gem metadata links documentation to that version's tag.
 
 The `Release` workflow then runs tests, publishes the gem to RubyGems,
 and creates the GitHub release from the changelog entry.
