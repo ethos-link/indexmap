@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
   spec.description = "A small Ruby gem for generating sitemap indexes and child sitemaps from explicit section definitions, with optional Rails rake task integration."
   spec.homepage = "https://www.ethos-link.com/opensource/indexmap"
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 3.2.0"
+  spec.required_ruby_version = ">= 4.0"
 
   repo = "https://github.com/ethos-link/indexmap"
   reference = "v#{spec.version}"
@@ -29,30 +29,18 @@ Gem::Specification.new do |spec|
     "rubygems_mfa_required" => "true"
   }
 
-  spec.files = Dir.chdir(File.expand_path(__dir__)) do
-    allowed_prefixes = %w[lib/ test/ docs/].freeze
-    allowed_files = %w[CHANGELOG.md LICENSE.txt README.md UPGRADE.md].freeze
-    git_files = `git ls-files -z 2>/dev/null`.split("\x0")
-    candidate_files = git_files.empty? ? Dir.glob("{lib,test,docs}/**/*", File::FNM_DOTMATCH) + allowed_files : git_files
-
-    candidate_files.select do |file|
-      next false unless File.file?(file)
-
-      allowed_files.include?(file) || allowed_prefixes.any? { |prefix| file.start_with?(prefix) }
-    end.uniq
+  spec.files = Dir.chdir(__dir__) do
+    (Dir["lib/**/*", "test/**/*", "docs/**/*"] + ["CHANGELOG.md", "LICENSE.txt", "README.md", "UPGRADE.md"]).select { |file| File.file?(file) }.uniq.sort
   end
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "activesupport", ">= 7.1"
+  spec.add_dependency "activesupport", ">= 8.0", "< 9"
   spec.add_dependency "faraday", ">= 2.0"
   spec.add_dependency "google-apis-searchconsole_v1", ">= 0.18"
   spec.add_dependency "googleauth", ">= 1.12"
   spec.add_dependency "nokogiri", ">= 1.16"
-  spec.add_dependency "railties", ">= 7.1"
 
   spec.add_development_dependency "minitest", "~> 5.0"
-  spec.add_development_dependency "rake", "~> 13.0"
   spec.add_development_dependency "simplecov", "~> 0.22"
-  spec.add_development_dependency "standard", "~> 1.0"
   spec.add_development_dependency "webmock", "~> 3.0"
 end

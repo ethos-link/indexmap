@@ -163,7 +163,7 @@ class IndexmapPublicationTest < Minitest::Test
       assert IO.select([reader], nil, nil, 5), "build did not reach destination staging"
       reader.read(7)
       staged = Dir.glob(File.join(directory, ".indexmap-builds/*/build-*")).fetch(0)
-      File.utime(Time.at(0), Time.at(0), staged)
+      File.utime(Time.at(0).getlocal, Time.at(0).getlocal, staged)
       assert_empty config.storage.prune(root: "sitemap.xml", before: Time.now.utc - 3600)
       assert File.directory?(staged)
       Process.kill("KILL", pid)
@@ -197,7 +197,7 @@ class IndexmapPublicationTest < Minitest::Test
       assert_raises(Indexmap::SupersededPublication) do
         config.storage.publish(nil, files: [], root: "sitemap.xml", expected: expected)
       end
-      config.storage.list(suffix: ".xml").each { |name| File.utime(Time.at(0), Time.at(0), File.join(directory, name)) }
+      config.storage.list(suffix: ".xml").each { |name| File.utime(Time.at(0).getlocal, Time.at(0).getlocal, File.join(directory, name)) }
       deleted = config.storage.prune(root: "sitemap.xml", before: Time.now.utc - 3600)
       assert (old - ["sitemap.xml"]).all? { |file| deleted.include?(file) }
       assert other.all? { |file| config.storage.exist?(file) }

@@ -5,7 +5,7 @@
 
 `indexmap` is a small Ruby gem for generating XML sitemaps from explicit Ruby data.
 
-It is designed for Rails apps that want:
+Use it from Ruby or an optional Rails 8 integration for:
 
 - deterministic sitemap output
 - plain Ruby configuration
@@ -14,15 +14,8 @@ It is designed for Rails apps that want:
 
 By default, `indexmap` writes a sitemap index plus one or more child sitemap files. For simpler sites, it also supports `:single_file` mode, which writes a single `urlset` directly to `sitemap.xml`.
 
-## Release status
-
-This branch documents **unreleased main**, including partitioned generation,
-atomic publication, sitemap and robots controllers, and IndexNow reports/retries.
-The latest version recorded in this repository is **0.8.2**. For that release,
-use the [0.8.2 README](https://github.com/ethos-link/indexmap/blob/v0.8.2/README.md)
-and [changelog](CHANGELOG.md). Installing from RubyGems does not provide the
-unreleased features below. Use a source checkout for evaluation until the next
-release, and read [UPGRADE.md](UPGRADE.md) before adopting it.
+See [CHANGELOG.md](CHANGELOG.md) for published changes and [UPGRADE.md](UPGRADE.md)
+for host migration steps.
 
 ## Installation
 
@@ -559,109 +552,45 @@ If Google credentials are blank, `indexmap:google:ping` skips Google
 submission. If neither a configured IndexNow key nor a valid key file is
 present, `indexmap:index_now:ping` skips IndexNow submission.
 
-## Development
-
-The gem requires Ruby 3.2+ and Active Support/railties 7.1+. CI exercises the
-Rails 7.1 floor on Ruby 3.2 and Rails 8.1.4 integration on Ruby 4.0, alongside the
-normal Ruby matrix. See [integration checks](docs/dynamic-sitemaps.md#integration-checks-from-a-source-checkout).
-
-Install [git-cliff](https://git-cliff.org/) before running tests; the release
-tests use it to generate changelogs in temporary repositories.
-
-Run tests:
-
-```bash
-bundle exec rake test
-```
-
-Run lint:
-
-```bash
-bundle exec rake standard
-```
-
-Run the full default task:
-
-```bash
-bundle exec rake
-```
-
-Tests generate a coverage report automatically.
-
-Note: `Gemfile.lock` is intentionally not tracked for this gem, following normal Ruby library conventions.
-
-### Git hooks
-
-We use [lefthook](https://lefthook.dev/) with the Ruby
-[commitlint](https://github.com/arandilopez/commitlint) gem to enforce
-Conventional Commits on every commit. We also use
-[Standard Ruby](https://standardrb.com/) to keep code style consistent. CI
-validates commit messages, Standard Ruby, tests, and git-cliff changelog
-generation on pull requests and pushes to main/master.
-
-Run the hook installer once per clone:
-
-```bash
-bundle exec lefthook install
-```
-
-## Release
-
-Releases are tag-driven and published by GitHub Actions to RubyGems.
-Local release commands never publish directly.
-
-Install [git-cliff](https://git-cliff.org/) locally before preparing a
-release. The release task prepends the next `CHANGELOG.md` section from
-Conventional Commits.
-
-Before preparing a release, switch to updated `main` with a clean worktree
-matching `origin/main`. If the release changes a public contract, merge the
-`UPGRADE.md` migration steps before preparing the release.
-
-Then run one of:
-
-```bash
-bundle exec rake 'release:prepare[patch]'
-bundle exec rake 'release:prepare[minor]'
-bundle exec rake 'release:prepare[major]'
-bundle exec rake 'release:prepare[0.9.0]'
-```
-
-The task prepends the changelog and updates the version, preserving existing
-history. It commits those two files on `main` with a Conventional Commit and
-`What:`, `Why:`, and `Where:` in the body, pushes `main`, then creates and pushes
-the annotated version tag. Review release-status notices before running it.
-Hooks remain enabled; the branch
-protection hook permits only the task's version and changelog commit on `main`.
-Ordinary changes still require a topic branch. Remote branch protections must
-permit the maintainer to push this release commit.
-
-Preparation handles every local release step. The pushed tag triggers GitHub
-Actions to publish the gem and create the GitHub release. Tagging requires clean
-`main` matching `origin/main`, an unused version tag, and a matching changelog
-section. Gem metadata links documentation to that version's tag.
-
-If preparation stops after creating the release commit, resolve the failure and
-push that existing commit to `main`. Resume tagging with:
-
-```bash
-bundle exec rake release:tag
-```
-
-This recovery command uses the already prepared version. Do not rerun preparation
-with the same version. If the annotated tag already exists locally after a tag
-push failure, retry `git push origin vX.Y.Z` with that version's tag.
-
-The `Release` workflow then runs tests, publishes the gem to RubyGems,
-and creates the GitHub release from the changelog entry.
-
 ## License
 
 MIT License, see [LICENSE.txt](LICENSE.txt)
 
-## About
+## Development and releases
 
-Made by the team at [Ethos Link](https://www.ethos-link.com) — practical software for growing businesses. We build tools for hospitality operators who need clear workflows, fast onboarding, and real human support.
+Shared tooling uses published [Ethos Gemkit](https://github.com/ethos-link/ethos-gemkit).
+Keep the exact Gemfile version and workflow commit pins on the same release.
 
-We also build [Reviato](https://www.reviato.com), “Capture. Interpret. Act.”.
-Turn guest feedback into clear next steps for your team. Collect private appraisals, spot patterns across reviews, and act before small issues turn into public ones.
+```sh
+bundle install
+bundle exec lefthook install
+bundle exec rake verify
+```
+
+The PostgreSQL integration suite covers Active Storage, GoodJob and Solid Queue:
+
+```sh
+BUNDLE_GEMFILE=gemfiles/integration.gemfile bundle install
+INDEXMAP_DATABASE_URL=postgresql://postgres@localhost:5432/indexmap_test \
+  BUNDLE_GEMFILE=gemfiles/integration.gemfile bundle exec ruby script/integration
+```
+
+Use a disposable `indexmap_test` database; the integration suite recreates it.
+
+From clean, current `main`, run `bundle exec rake 'release:prepare[patch]'`
+(or `minor`, `major`, or an explicit version). Review and merge the generated
+release PR to publish through Actions. Shared prerequisites, registry credentials
+and failed-job recovery are in the [Gemkit release guide](https://github.com/ethos-link/ethos-gemkit#releasing-a-gem).
+
+## Built by Ethos Link
+
+[Ethos Link](https://www.ethos-link.com) builds business software and integrations
+that replace manual handoffs with connected workflows. We help teams automate
+routine work, use their data and improve the processes their business runs on.
+
+- [Reviato](https://www.reviato.com): Read public review trends and collect
+  private customer feedback, so your team can decide what to improve.
+- [EthosPlaces](https://www.ethos.place): Give customers the details they need to
+  choose and visit your business, from opening hours to directions.
+- [Nuntio](https://www.nuntiohq.com): Draft, review and schedule social posts in
+  one workspace, then track each publishing result.
