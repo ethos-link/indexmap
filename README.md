@@ -272,6 +272,24 @@ This is the default behavior. `indexmap` writes:
 - `sitemap.xml` as a sitemap index
 - one or more child sitemap files from `config.sections`
 
+Section entries can be enumerables. Indexmap consumes each section once and
+calculates its index `lastmod` in that same pass. For database sources, return a
+fresh enumerable from the configured sections callable on every generation:
+
+```ruby
+config.sections = -> do
+  entries = PublicPage.indexable.find_each.lazy.map do |page|
+    Indexmap::Entry.new(loc: page.canonical_url, lastmod: page.updated_at)
+  end
+  [Indexmap::Section.new(filename: "sitemap-pages.xml", entries: entries)]
+end
+```
+
+`PublicPage`, its eligibility scope, and canonical URL method are host-app
+examples. Keep queries and routing decisions in the host. XML documents and
+validation entries are still held in memory; this is not bounded-memory
+streaming or automatic partitioning.
+
 ### Single-File Mode
 
 For sites that only want one `sitemap.xml` file:

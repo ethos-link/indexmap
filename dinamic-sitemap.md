@@ -25,7 +25,9 @@ for the first release.
 ## Implementation readiness and code budget
 
 Increments 1a, 1b, and 1c below are implemented, together with transport timeouts
-and partial-result preservation. Automatic retries remain deferred. The later
+and partial-result preservation. A follow-up makes section entry consumption and
+index date calculation a single pass; full streaming remains proposed.
+Automatic retries remain deferred. The later
 storage work is a direction with acceptance criteria, not a complete adapter
 specification. Before implementing it, settle activation/locking semantics and
 measure the actual pipeline. Durable history and content diffs remain deferred.

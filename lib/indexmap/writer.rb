@@ -13,13 +13,16 @@ module Indexmap
     end
 
     def write
-      return [write_file(index_filename, urlset_xml(entries))] if single_file?
+      return [write_file(index_filename, urlset_xml(entries).first)] if single_file?
 
+      index_entries = []
       paths = sections.map do |section|
-        write_file(section.filename, urlset_xml(section.entries))
+        body, lastmod = urlset_xml(section.entries)
+        index_entries << [section.filename, lastmod]
+        write_file(section.filename, body)
       end
 
-      paths + [write_file(index_filename, index_xml(sections))]
+      paths + [write_file(index_filename, index_xml(index_entries))]
     end
 
     private
@@ -61,17 +64,25 @@ module Indexmap
         %(<?xml version="1.0" encoding="UTF-8"?>),
         %(<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">)
       ]
+      latest = nil
 
       entries.each do |entry|
         sitemap_entry = normalize_entry(entry)
         lines << "  <url>"
         lines << "    <loc>#{escape(sitemap_entry.loc)}</loc>"
-        lines << "    <lastmod>#{format_lastmod(sitemap_entry.lastmod)}</lastmod>" if sitemap_entry.lastmod
+        if sitemap_entry.lastmod
+          lastmod = parsed_lastmod(sitemap_entry.lastmod)
+          lines << "    <lastmod>#{escape(lastmod.iso8601)}</lastmod>"
+          unless single_file?
+            timestamp = comparable_lastmod(lastmod)
+            latest = timestamp if latest.nil? || timestamp > latest
+          end
+        end
         lines << "  </url>"
       end
 
       lines << "</urlset>"
-      lines.join("\n") + "\n"
+      [lines.join("\n") + "\n", latest]
     end
 
     def index_xml(sitemap_sections)
@@ -80,10 +91,9 @@ module Indexmap
         %(<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">)
       ]
 
-      sitemap_sections.each do |section|
+      sitemap_sections.each do |filename, lastmod|
         lines << "  <sitemap>"
-        lines << "    <loc>#{escape(index_loc(section.filename))}</loc>"
-        lastmod = section_lastmod(section)
+        lines << "    <loc>#{escape(index_loc(filename))}</loc>"
         lines << "    <lastmod>#{format_lastmod(lastmod)}</lastmod>" if lastmod
         lines << "  </sitemap>"
       end
@@ -100,11 +110,6 @@ module Indexmap
 
     def index_loc(filename)
       File.join(base_url.sub(%r{/\z}, ""), filename)
-    end
-
-    def section_lastmod(section)
-      timestamps = Array(section.entries).map { |entry| comparable_lastmod(normalize_entry(entry).lastmod) }.compact
-      timestamps.max
     end
 
     def format_lastmod(value)

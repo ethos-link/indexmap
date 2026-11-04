@@ -85,4 +85,46 @@ class IndexmapWriterTest < Minitest::Test
 
     refute_includes index_xml, "<lastmod>"
   end
+
+  def test_consumes_section_entries_once_and_preserves_output_and_latest_date
+    entries = [
+      {loc: "https://example.com/first", lastmod: Date.new(2026, 4, 21)},
+      {loc: "https://example.com/second", lastmod: "2026-04-22T09:15:00Z"},
+      {loc: "https://example.com/third", lastmod: nil}
+    ]
+    iterations = 0
+    source = Enumerator.new do |yielder|
+      iterations += 1
+      raise "source was enumerated twice" if iterations > 1
+
+      entries.each { |entry| yielder << entry }
+    end
+    expected = Indexmap::Writer.new(base_url: "https://example.com",
+      sections: [{filename: "sitemap-pages.xml", entries: entries}]).write
+    actual = Indexmap::Writer.new(base_url: "https://example.com",
+      sections: [{filename: "sitemap-pages.xml", entries: source}]).write
+
+    assert_equal expected.map(&:body), actual.map(&:body)
+    assert_equal 1, iterations
+    assert_includes actual.last.body, "<lastmod>2026-04-22T09:15:00Z</lastmod>"
+  end
+
+  def test_create_publishes_a_one_shot_section_source
+    configuration = Indexmap::Configuration.new
+    configuration.base_url = "https://example.com"
+    configuration.storage = Indexmap::Storage::Memory.new
+    iterations = 0
+    source = Enumerator.new do |yielder|
+      iterations += 1
+      raise "source was enumerated twice" if iterations > 1
+
+      yielder << Indexmap::Entry.new(loc: "https://example.com/page", lastmod: Time.utc(2026, 4, 21))
+    end
+    configuration.sections = [Indexmap::Section.new(filename: "sitemap-pages.xml", entries: source)]
+
+    assert_equal ["sitemap-pages.xml", "sitemap.xml"], Indexmap.create(configuration: configuration)
+    assert_equal 1, iterations
+    assert_includes configuration.storage.read("sitemap.xml"), "<lastmod>2026-04-21T00:00:00Z</lastmod>"
+    assert_includes configuration.storage.read("sitemap-pages.xml"), "<loc>https://example.com/page</loc>"
+  end
 end
