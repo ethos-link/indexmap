@@ -44,6 +44,8 @@ directory prefix such as `sitemaps/`.
 
 ## Documentation
 
+- [Dynamic sitemaps](docs/dynamic-sitemaps.md): streaming and partitions, atomic
+  publication, Rails delivery, retention, jobs, and host adoption.
 - [Search engine ping](docs/search-engine-ping.md): Google Search Console
   credentials, Google property configuration, and IndexNow key setup.
 - [UPGRADE.md](UPGRADE.md): host-app migration steps for public contract
@@ -126,10 +128,11 @@ bin/rails indexmap:sitemap:format
 bin/rails indexmap:sitemap:validate
 ```
 
-`indexmap:sitemap:create` is the main task. It builds sitemap files in memory,
-formats them, validates the result, then writes the final XML files to the
-configured storage. Existing sitemap files are left untouched if generation or
-validation fails.
+`indexmap:sitemap:create` is the main task. It stages partitioned XML on temporary
+disk, validates the complete result, then publishes to configured storage.
+Generation and validation failures leave published files untouched. Legacy
+publication remains sequential; enable atomic mode for immutable children and
+revision-checked root activation. See [dynamic sitemaps](docs/dynamic-sitemaps.md).
 
 ### Background Generation
 
@@ -240,10 +243,10 @@ Use a shared concurrency key or label for jobs writing the same destination,
 across releases. Prefer blocking or rescheduling conflicts to discarding a newer
 refresh. Backend controls do not protect manual rake invocations, and Solid
 Queue's concurrency duration can expire before an unusually long job finishes.
-Avoid concurrent writers through all entrypoints. Current storage writes are
-sequential: validation failure preserves published files, but an interrupted
-publication can leave a mixture of old and new children. Atomic collection
-publication and retained generations are not implemented.
+Avoid concurrent writers through all entrypoints in legacy mode: an interrupted
+sequential publication can leave mixed generations. Opt-in atomic mode checks
+root revisions under a storage lock and retains previous generations. See the
+[publication and retention contract](docs/dynamic-sitemaps.md#atomic-publication-and-storage).
 
 Keep generation and search-engine submission separate. A refresh retry should
 not automatically resend successful IndexNow batches. Make `after_create`
@@ -254,9 +257,10 @@ selection before submitting. See [selection and attempt reports](docs/search-eng
 Batch source queries with native Rails APIs and select the fields needed for
 URLs and dates. Supply meaningful content dates; do not use the refresh time as
 `lastmod`. Each sitemap must stay within 50,000 entries and 52,428,800 uncompressed
-bytes. The gem rejects oversized documents; the host still owns partitioning.
-Measure the complete refresh before adding parallel jobs or caches. Lazy section
-sources avoid repeat enumeration but do not bound XML or validation memory.
+bytes. Index mode partitions automatically; single-file mode rejects an output
+that needs splitting. Measure the complete refresh before adding parallel jobs or
+caches. Supply lazy sources to benefit from incremental generation and validation;
+app-owned arrays and explicit inventory-returning APIs still retain their data.
 
 Generation uses the same synchronous entrypoints with GoodJob and Solid Queue;
 the examples above describe their different concurrency behavior. Verify the
@@ -322,9 +326,9 @@ end
 ```
 
 `PublicPage`, its eligibility scope, and canonical URL method are host-app
-examples. Keep queries and routing decisions in the host. XML documents and
-validation entries are still held in memory; this is not bounded-memory
-streaming or automatic partitioning.
+examples. Keep queries and routing decisions in the host. Generation stages
+bounded partitions and validates incrementally, using temporary disk for global
+duplicate checks. See [memory and disk limits](docs/dynamic-sitemaps.md#configure-generation).
 
 ### Single-File Mode
 

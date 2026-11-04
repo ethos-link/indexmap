@@ -13,6 +13,13 @@ namespace :indexmap do
       puts "IndexNow key file: #{create_result[:index_now_key_filename]}" if create_result[:index_now_key_filename]
     end
 
+    desc "Prune expired immutable generations (RETENTION_HOURS defaults to 48)"
+    task prune: :environment do
+      hours = Integer(ENV.fetch("RETENTION_HOURS", "48"), 10)
+      deleted = Indexmap::TaskRunner.new.prune(retention: hours * 3600)
+      puts "Pruned #{deleted.size} sitemap artifacts."
+    end
+
     desc "Format sitemap files for better readability"
     task format: :environment do
       runner = Indexmap::TaskRunner.new

@@ -5,11 +5,55 @@ or pings sitemaps with `indexmap`.
 
 ## Unreleased
 
+Generation now stages XML on temporary disk and partitions index sections by
+`max_urls` and `max_bytes`. Defaults are the sitemap protocol limits. The first
+legacy partition keeps its configured name; later files append `-002.xml`, etc.
+Single-file mode still writes one file and fails if splitting would be required.
+Locations must be shorter than 2,048 characters; repeated `loc`/`lastmod` fields
+are rejected. Provision temporary disk for XML, validation spools, and duplicate
+sorting. The full-document Nokogiri formatting pass is removed; XML meaning is preserved but
+serialized bytes/checksums can change. Generation reports no longer download
+published artifacts to count URLs.
+
+Set `config.atomic = true` to opt into immutable generation children and guarded
+root activation. Filesystem and Active Storage implement the required revision
+and publish capabilities. Custom six-method adapters retain legacy behavior;
+unsupported atomic mode fails explicitly. Generated child keys use a reserved
+`sitemap-<owner>-<generation>-<section>-<part>.xml` namespace and cannot be
+rewritten by built-in adapters. Update fixed filename route constraints, remove
+static files that shadow new routes, and replace app cleanup callbacks that
+recompute configured filenames. They would delete generated children.
+
+Atomic Active Storage requires an unconditional unique filename index. Inspect
+existing data/schema and use a generated host migration if needed. The host
+artifact model remains app-owned. Retention uses archive record timestamps and
+the model's normal attachment cleanup, which requires working purge-job workers.
+Filesystem atomic mode requires shared lock/rename semantics; a worker-local
+container directory is insufficient for multiple serving instances.
+
+`Indexmap::SupersededPublication` means another build activated the root after
+this build began. Retry by rebuilding; do not fall back to sequential writes.
+Use native bounded Active Job retries in host jobs for this transient condition.
+The same entrypoints support GoodJob and Solid Queue. The opt-in sitemap
+controller serves configured roots and current/retained atomic children using
+storage metadata and streaming reads. See [dynamic sitemap usage](docs/dynamic-sitemaps.md)
+for routes, cache policy, adapter capabilities, and app-specific adoption steps.
+
+Schedule `indexmap:sitemap:prune` separately. `RETENTION_HOURS` defaults to 48 and
+must be at least 1; choose a grace period covering cached roots and rollbacks.
+The format task refuses to mutate atomic publications; regenerate instead.
+
+IndexNow selection now spools validated entries before sending, without retaining
+all selected URLs. Optional bounded retries use `config.index_now.max_attempts`
+(1..5, default 1) and `max_wait` (0..60 seconds, default 30). Attempt exports now
+include attempt numbers. Long `Retry-After` values defer retries rather than
+being shortened; this is not durable scheduling or exactly-once delivery.
+
 Section entries are now consumed once per generation, including calculation of
-the index's `lastmod`. Existing array sources keep the same XML output. Apps may
+the index's `lastmod`. Existing array sources keep the same XML meaning. Apps may
 return fresh lazy enumerables from `config.sections`; do not reuse exhausted
-one-shot sources between refreshes. This does not add automatic partitioning or
-change the storage publication guarantees.
+one-shot sources between refreshes. Streaming generation and opt-in atomic
+publication are described above.
 
 Sitemap validation now rejects files larger than 52,428,800 uncompressed bytes,
 URL sets and indexes with more than 50,000 entries, missing or incorrect sitemap
@@ -21,8 +65,8 @@ provide atomic publication of the entire sitemap set.
 
 IndexNow now validates the reachable sitemap before planning or sending. Duplicate
 or otherwise invalid entries fail validation instead of being silently filtered.
-Split oversized sitemaps in the application's manifest; automatic partitioning is
-not included in this change.
+Index sections partition automatically; use index format when a single-file
+output would exceed its limits.
 
 Date-only `lastmod` values now participate in IndexNow cutoff selection. Dates on
 or after the cutoff's UTC calendar day are included, even when the cutoff has a
@@ -38,8 +82,8 @@ to private operator storage if needed, never public sitemap storage. HTTP 202
 is reported as `validation_pending` in the attempt receipt. The summary retains
 its existing `submitted` status for successful HTTP responses; it does not prove
 indexing. Transport failures now appear in partial/failed results with reason
-`unknown_delivery`, preserving earlier successful batches. There are no automatic
-retries or durable delivery history.
+`unknown_delivery`, preserving earlier successful batches. Retries are opt-in as
+described above; there is no durable delivery history.
 
 Robots delivery is opt-in. Require `indexmap/robots_controller`, apply the host
 configuration, and mount the controller explicitly as documented in the README.

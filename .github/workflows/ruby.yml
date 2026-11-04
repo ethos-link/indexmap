@@ -4,7 +4,6 @@ on:
   push:
     branches: ["main", "master"]
   pull_request:
-    branches: ["main", "master"]
   workflow_call:
 
 permissions:
@@ -28,6 +27,33 @@ jobs:
 
       - name: Run tests and Standard Ruby
         run: bundle exec rake
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: indexmap_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      BUNDLE_GEMFILE: gemfiles/integration.gemfile
+      INDEXMAP_DATABASE_URL: postgresql://postgres@localhost:5432/indexmap_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - name: Verify Active Storage and both job backends
+        run: bundle exec ruby script/integration
 
   changelog:
     runs-on: ubuntu-latest

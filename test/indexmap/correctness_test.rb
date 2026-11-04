@@ -91,6 +91,9 @@ class IndexmapCorrectnessTest < Minitest::Test
       '<urlset xmlns="https://other.example/schema"><url><loc>https://example.com/page</loc></url></urlset>'].each do |body|
       assert_raises(Indexmap::ValidationError) { validate(body) }
     end
+    assert_raises(Indexmap::ValidationError) do
+      validate(urlset("<url><loc>https://user:password@example.com/page</loc></url>"))
+    end
   end
 
   def test_validates_deep_indexes_without_recursion_or_repeated_reads
@@ -110,6 +113,19 @@ class IndexmapCorrectnessTest < Minitest::Test
     assert_equal ["https://example.com/page"], validator.entries.map(&:loc)
     assert_equal names.size, reads.size
     assert reads.values.all? { |count| count == 1 }
+  end
+
+  def test_location_length_and_repeated_fields_are_bounded
+    prefix = "https://example.com/"
+    location = prefix + "a" * (2047 - prefix.length)
+    assert validate(urlset("<url><loc>#{location}</loc></url>"))
+    assert_raises(Indexmap::ValidationError) { validate(urlset("<url><loc>#{location}x</loc></url>")) }
+    assert_raises(Indexmap::ValidationError) do
+      validate(urlset("<url><loc>https://example.com/</loc><loc>https://example.com/other</loc></url>"))
+    end
+    assert_raises(Indexmap::ValidationError) do
+      validate(urlset("<url><loc>https://example.com/</loc><lastmod/><lastmod/></url>"))
+    end
   end
 
   private

@@ -24,11 +24,6 @@ module Indexmap
 
         batch_size = max_urls_per_request
         entries = entries_to_ping
-        if entries.empty?
-          logger.debug("IndexNow: no URLs matched the current filter.")
-          return {status: :skipped, reason: :no_urls}
-        end
-
         results = entries.each_slice(batch_size).map.with_index(1) do |batch, number|
           urls = batch.map(&:loc)
 
@@ -37,11 +32,28 @@ module Indexmap
             next({status: :dry_run, url_count: urls.count})
           end
 
-          yield({event: :attempt_started, batch: number, urls: urls}) if block_given?
-          result = submit_batch(api_key: api_key, urls: urls)
-          yield(result.merge(event: :attempt_finished, batch: number, urls: urls)) if block_given?
+          attempts = index_now_configuration.max_attempts || 1
+          max_wait = index_now_configuration.max_wait || 30
+          unless attempts.is_a?(Integer) && (1..5).cover?(attempts) && max_wait.is_a?(Numeric) && (0..60).cover?(max_wait)
+            raise ConfigurationError, "IndexNow retries require 1..5 attempts and 0..60 seconds max_wait"
+          end
+          result = nil
+          attempts.times do |attempt|
+            yield({event: :attempt_started, batch: number, attempt: attempt + 1, urls: urls}) if block_given?
+            result = submit_batch(api_key: api_key, urls: urls)
+            yield(result.merge(event: :attempt_finished, batch: number, attempt: attempt + 1, urls: urls)) if block_given?
+            retryable = result[:reason] == :unknown_delivery || [429, 500, 502, 503, 504].include?(result[:status_code])
+            break unless retryable && attempt + 1 < attempts
+
+            delay = result[:retry_after] || [2**attempt + rand, max_wait].min
+            break if delay > max_wait
+
+            sleep(delay)
+          end
           result
         end
+
+        return {status: :skipped, reason: :no_urls} if results.empty?
 
         summarize_results(results)
       end
@@ -100,19 +112,15 @@ module Indexmap
       end
 
       def entries_to_ping
-        cutoff = since_cutoff
-        entries = []
-        each_selection(cutoff: cutoff) do |entry, _reason, selected|
-          entries << entry if selected
-        end
-        entries
+        enum_for(:each_selection, cutoff: since_cutoff).lazy.filter_map do |entry, _reason, selected|
+          entry if selected
+        end.eager
       end
 
       def each_selection(cutoff:)
         sitemap_files.each do |filename|
           validator = Validator.new(configuration: configuration, filename: filename)
-          validator.validate!
-          validator.entries.each do |entry|
+          validator.each_entry do |entry|
             reason = if cutoff.nil?
               :all
             elsif entry.lastmod.to_s.strip.empty?
@@ -182,10 +190,21 @@ module Indexmap
         else
           logger.debug { "Failed to ping IndexNow. Status: #{response.status}" }
           {status: :failed, url_count: urls.count, status_code: response.status,
-           body: response.body.to_s.gsub(api_key, "[FILTERED]").slice(0, 1024)}
+           body: response.body.to_s.encode("UTF-8", invalid: :replace, undef: :replace).gsub(api_key, "[FILTERED]").slice(0, 1024),
+           retry_after: retry_after(response.headers["retry-after"])}
         end
       rescue Faraday::TimeoutError, Faraday::ConnectionFailed
         {status: :failed, url_count: urls.count, reason: :unknown_delivery}
+      end
+
+      def retry_after(value)
+        return if value.to_s.empty?
+
+        seconds = Integer(value.to_s, exception: false)
+        seconds ||= Time.httpdate(value).utc - Time.now.utc
+        [seconds, 0].max
+      rescue ArgumentError
+        nil
       end
 
       def index_now_connection

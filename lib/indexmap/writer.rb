@@ -2,36 +2,67 @@
 
 module Indexmap
   class Writer
+    attr_reader :counts
+
     VALID_FORMATS = %i[index single_file].freeze
 
-    def initialize(base_url:, sections: nil, entries: nil, index_filename: "sitemap.xml", format: :index)
-      @entries = normalize_entries(entries)
+    def initialize(base_url:, sections: nil, entries: nil, index_filename: "sitemap.xml", format: :index, max_urls: 50_000, max_bytes: 52_428_800, generation: nil)
+      @entries = entries || []
       @format = normalize_format(format)
       @sections = normalize_sections(sections)
       @base_url = base_url
       @index_filename = index_filename
+      @max_urls = Integer(max_urls.to_s, 10)
+      @max_bytes = Integer(max_bytes.to_s, 10)
+      @generation = generation
+      @counts = {}
+      unless (1..Validator::MAX_ENTRIES).cover?(@max_urls) && (1..Validator::MAX_BYTES).cover?(@max_bytes)
+        raise ConfigurationError, "Invalid sitemap partition limits"
+      end
     end
 
     def write
-      return [write_file(index_filename, urlset_xml(entries).first)] if single_file?
+      each_file.to_a
+    end
 
-      index_entries = []
-      paths = sections.map do |section|
-        body, lastmod = urlset_xml(section.entries)
-        index_entries << [section.filename, lastmod]
-        write_file(section.filename, body)
+    def each_file
+      return enum_for(:each_file) unless block_given?
+
+      if single_file?
+        body, = urlset_xml(entries)
+      else
+        index_entries = []
+        sections.each_with_index do |section, section_index|
+          part = 0
+          chunks(section.entries) do |body, lastmod, count|
+            part += 1
+            filename = if @generation
+              Publication.new(root: index_filename).filename(generation: @generation, section: section_index + 1, part: part)
+            elsif part == 1
+              section.filename
+            else
+              section.filename.sub(/\.xml\z/, "-#{Kernel.format("%03d", part)}.xml")
+            end
+            raise ConfigurationError, "Section filenames must end in .xml" if part > 1 && filename == section.filename
+
+            @counts[filename] = count
+            index_entries << [filename, lastmod]
+            raise ValidationError, "Sitemap exceeds 50,000 entries: #{index_filename}" if index_entries.size > Validator::MAX_ENTRIES
+
+            yield write_file(filename, body)
+          end
+        end
+        body = index_xml(index_entries)
+        raise ValidationError, "Sitemap exceeds 52,428,800 bytes: #{index_filename}" if body.bytesize > @max_bytes
+
+        @counts[index_filename] = index_entries.size
       end
-
-      paths + [write_file(index_filename, index_xml(index_entries))]
+      yield write_file(index_filename, body)
     end
 
     private
 
     attr_reader :base_url, :entries, :format, :index_filename, :sections
-
-    def normalize_entries(raw_entries)
-      Array(raw_entries).map { |entry| normalize_entry(entry) }
-    end
 
     def normalize_format(value)
       normalized = value.nil? ? :index : value.to_sym
@@ -59,30 +90,49 @@ module Indexmap
       Storage::File.new(filename: filename, body: body, content_type: "application/xml")
     end
 
-    def urlset_xml(entries)
-      lines = [
-        %(<?xml version="1.0" encoding="UTF-8"?>),
-        %(<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">)
-      ]
+    HEADER = %(<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n)
+    FOOTER = "</urlset>\n"
+
+    def chunks(source)
+      body = +HEADER
       latest = nil
-
-      entries.each do |entry|
-        sitemap_entry = normalize_entry(entry)
-        lines << "  <url>"
-        lines << "    <loc>#{escape(sitemap_entry.loc)}</loc>"
-        if sitemap_entry.lastmod
-          lastmod = parsed_lastmod(sitemap_entry.lastmod)
-          lines << "    <lastmod>#{escape(lastmod.iso8601)}</lastmod>"
-          unless single_file?
-            timestamp = comparable_lastmod(lastmod)
-            latest = timestamp if latest.nil? || timestamp > latest
-          end
+      count = 0
+      source.each do |value|
+        entry = normalize_entry(value)
+        xml = "  <url>\n    <loc>#{escape(entry.loc)}</loc>\n"
+        timestamp = nil
+        if entry.lastmod
+          date = parsed_lastmod(entry.lastmod)
+          xml << "    <lastmod>#{escape(date.iso8601)}</lastmod>\n"
+          timestamp = comparable_lastmod(date)
         end
-        lines << "  </url>"
+        xml << "  </url>\n"
+        if HEADER.bytesize + xml.bytesize + FOOTER.bytesize > @max_bytes
+          raise ValidationError, "Sitemap entry exceeds byte limit"
+        end
+        if count > 0 && (count == @max_urls || body.bytesize + xml.bytesize + FOOTER.bytesize > @max_bytes)
+          yield body << FOOTER, latest, count
+          body = +HEADER
+          latest = nil
+          count = 0
+        end
+        body << xml
+        latest = timestamp if timestamp && (latest.nil? || timestamp > latest)
+        count += 1
       end
+      yield body << FOOTER, latest, count if count > 0
+    end
 
-      lines << "</urlset>"
-      [lines.join("\n") + "\n", latest]
+    def urlset_xml(source)
+      result = nil
+      chunks(source) do |body, lastmod, count|
+        raise ValidationError, "Single-file sitemap exceeds partition limits; use index format" if result
+
+        @counts[index_filename] = count
+        result = [body, lastmod]
+      end
+      @counts[index_filename] ||= 0
+      result || [HEADER + FOOTER, nil]
     end
 
     def index_xml(sitemap_sections)

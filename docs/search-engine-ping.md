@@ -279,9 +279,32 @@ receipt `received`. Neither proves crawling or indexing. Dry runs emit only a
 summary because they make no attempts.
 
 Timeouts and connection failures produce a failed batch with reason
-`unknown_delivery`. Earlier successful batches remain in the summary. There are
-no automatic retries. Requests use a five-second connection timeout and a
-20-second request timeout. API keys are omitted from reports.
+`unknown_delivery`. Earlier successful batches remain in the summary. There are no
+automatic retries by default. Requests use a five-second connection timeout and
+a 20-second request timeout. API keys are omitted from reports.
+
+Enable bounded retries explicitly in the existing configure block:
+
+```ruby
+config.index_now.max_attempts = 3
+config.index_now.max_wait = 30
+```
+
+Attempts must be an integer from 1 through 5; `max_wait` is a finite number of
+seconds from 0 through 60. The default is one attempt and a 30-second wait budget.
+Only the affected batch retries for transport uncertainty or HTTP 429, 500, 502,
+503, and 504. Backoff includes jitter. A valid `Retry-After` takes precedence;
+when it exceeds `max_wait`, the batch remains failed instead of retrying early.
+Permanent errors and HTTP 202 do not retry. Both report events include an
+`attempt` number, so an initially uncertain attempt remains visible even when a
+later attempt succeeds. Summary counts describe final batch outcomes.
+
+Do not stack whole-job retries around a partially successful submission: that can
+resend earlier successful batches. Retries do not survive process restarts and
+may duplicate a remotely received request after a timeout. Generation and
+submission remain separate. Preview and sending validate and spool the complete
+reachable inventory before yielding selection or issuing requests; selected URLs
+are then read in bounded batches instead of retaining an inventory-sized array.
 
 Exports are not a durable ledger. A preview and a later submission can differ
 when files or configuration change. An attempt-started record proves local

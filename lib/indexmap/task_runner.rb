@@ -9,19 +9,23 @@ module Indexmap
     end
 
     def create
-      written_files = Indexmap.create(configuration: configuration)
+      creator = Creator.new(output: default_output)
+      written_files = creator.create
       index_now_key_filename = write_index_now_key if configuration.index_now.write_key_file?
       configuration.run_after_create_callbacks
 
       {
         files: written_files.map(&:to_s),
         written_files: written_files,
-        sitemaps: sitemap_details(written_files),
+        sitemaps: creator.sitemaps,
         index_now_key_filename: index_now_key_filename
       }
     end
 
     def format
+      if configuration.output_names.any? { |name| configuration.output_for(name).atomic }
+        raise ConfigurationError, "Format immutable sitemaps by regenerating them"
+      end
       sitemap_files.each do |filename|
         content = storage.read(filename)
         document = Nokogiri::XML(
@@ -39,8 +43,18 @@ module Indexmap
     end
 
     def validate
-      Validator.new(configuration: configuration).validate!
+      Validator.new(configuration: configuration).validate!(collect: false)
       sitemap_files
+    end
+
+    def prune(retention: 48 * 3600)
+      raise ConfigurationError, "Retention must be at least one hour" unless retention.is_a?(Numeric) && retention >= 3600
+      raise ConfigurationError, "Storage does not support pruning" unless storage.respond_to?(:prune)
+
+      configuration.output_names.flat_map do |name|
+        output = configuration.output_for(name)
+        output.atomic ? storage.prune(root: output.index_filename, before: Time.now.utc - retention) : []
+      end
     end
 
     def write_index_now_key(generate_if_missing: false)
@@ -64,28 +78,6 @@ module Indexmap
 
     def sitemap_files
       storage.list(prefix: "sitemap", suffix: ".xml")
-    end
-
-    def sitemap_details(files)
-      files.map do |filename|
-        {
-          filename: filename.to_s,
-          location: sitemap_location(filename),
-          link_count: sitemap_link_count(filename)
-        }
-      end
-    end
-
-    def sitemap_location(filename)
-      return storage.public_url(filename) if storage.respond_to?(:public_url)
-
-      filename.to_s
-    end
-
-    def sitemap_link_count(filename)
-      document = Nokogiri::XML(storage.read(filename.to_s))
-      document.remove_namespaces!
-      document.xpath("//loc").count
     end
   end
 end
