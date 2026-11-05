@@ -1,9 +1,5 @@
 # Database-backed sitemaps
 
-> This guide describes unreleased main. For RubyGems 0.8.2, use the
-> [tagged documentation](https://github.com/ethos-link/indexmap/tree/v0.8.2).
-> See [release status](../README.md#release-status) and [UPGRADE.md](../UPGRADE.md).
-
 Indexmap generates sitemap artifacts from app-owned sources. Generation can run
 in a job or rake task; HTTP requests serve published artifacts and never query
 source records. No model concern, queue backend, schedule, or content eligibility

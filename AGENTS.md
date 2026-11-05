@@ -19,8 +19,8 @@ validated, and aligned with this gem's public API.
 - Changelog pull request references must link to PRs, not issues.
 - When a change breaks or changes a public contract, update `UPGRADE.md` in
   the same change with explicit host-app migration steps.
-- Before finishing release-harness changes, run the focused release tests and
-  a `git-cliff` smoke check.
+- Run `bundle exec rake verify` before handing off. Shared release safeguards
+  and fixtures live in [Gemkit](https://github.com/ethos-link/ethos-gemkit).
 
 ## Git Standards
 
@@ -29,7 +29,8 @@ validated, and aligned with this gem's public API.
 - Gemkit prepares releases on conventional branches; workflow publication
   follows the reviewed release PR merge.
 - Use branches for all development work.
-- Use Conventional Commits with `What:`, `Why:`, and `Where:` in the body.
+- Use Conventional Commits with a concise body explaining why the change
+  exists, the approach, and relevant constraints.
 - Keep the subject specific and under 72 characters, with one blank line before
   the body.
 - Follow the `git-standards` skill for the full validation checklist.

@@ -1,8 +1,5 @@
 # Choose a deployment path
 
-> This guide describes unreleased main, not RubyGems 0.8.2.
-> See [release status](../README.md#release-status) before installing.
-
 Source data and HTTP delivery are separate decisions. A database-backed sitemap
 can be served as a static file after a scheduled refresh. Static marketing URLs
 can be served by a Rails controller. Neither choice generates XML on crawler
