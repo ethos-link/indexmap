@@ -7,7 +7,7 @@ or pings sitemaps with `indexmap`.
 
 ### Shared development and release tooling
 
-Use Ruby 4 and published Gemkit 0.2.0. Install the bundle and hooks, then run the
+Use Ruby 4 and published Gemkit 0.3.0. Install the bundle and hooks, then run the
 project's verification command from the README. Prepare releases from clean,
 current main; merging the generated release PR publishes through Actions.
 See the [Gemkit upgrade guide](https://github.com/ethos-link/ethos-gemkit/blob/main/UPGRADE.md)
@@ -130,7 +130,7 @@ Create stages, validates, and publishes; it does not pretty-print. Only
 The optional format task remains for legacy output. See the
 [deployment guide](docs/deployment.md) for static/dynamic sources and delivery,
 robots policy, and development/production checks. Main documentation describes
-unreleased features; use tagged documentation while consuming 0.8.2.
+features beyond your installed version; use documentation from its release tag.
 
 ### Generation, publication, and delivery
 

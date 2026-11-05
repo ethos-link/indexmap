@@ -1,7 +1,5 @@
 # How Indexmap works
 
-> This describes unreleased main. See [release status](../README.md#release-status).
-
 The host supplies eligible URLs and content dates. Indexmap generates, validates,
 and publishes XML. A web server, CDN, or explicitly mounted Rails controller
 serves those artifacts. Crawlers do not trigger generation or query section sources.

@@ -211,7 +211,6 @@ module Indexmap
         @index_now_connection ||= connection || Faraday.new(url: index_now_configuration.endpoint) do |faraday|
           faraday.options.open_timeout = 5
           faraday.options.timeout = 20
-          faraday.request :json
         end
       end
 

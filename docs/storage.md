@@ -1,8 +1,5 @@
 # Storage contract
 
-> Atomic publication and streamed delivery describe unreleased main.
-> See [release status](../README.md#release-status).
-
 All outputs share `config.storage`. Operation instances resolve storage lazily
 once; construct a new runner, validator, creator, or pinger for a new storage
 context. Collaborators receive the same adapter through `storage:`. Configure
