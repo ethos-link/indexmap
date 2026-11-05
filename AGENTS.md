@@ -34,3 +34,7 @@ validated, and aligned with this gem's public API.
 - Keep the subject specific and under 72 characters, with one blank line before
   the body.
 - Follow the `git-standards` skill for the full validation checklist.
+
+Run `bundle exec rake verify` locally before merging or releasing. GitHub
+Actions runs commitlint and release packaging/publication only. Provision test
+databases and browsers locally; do not add hosted test or lint jobs.
