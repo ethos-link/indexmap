@@ -57,7 +57,7 @@ GEM
     drb (2.2.3)
     erb (6.0.4)
     erubi (1.13.1)
-    ethos-gemkit (0.3.0)
+    ethos-gemkit (0.3.1)
       lefthook (~> 2.1)
       lint_roller (~> 1.1)
       rake (~> 13.0)
@@ -248,7 +248,7 @@ PLATFORMS
   x86_64-linux-gnu
 
 DEPENDENCIES
-  ethos-gemkit (= 0.3.0)
+  ethos-gemkit (= 0.3.1)
   indexmap!
   minitest (~> 5.0)
   railties (>= 8.0, < 9)
@@ -274,7 +274,7 @@ CHECKSUMS
   drb (2.2.3) sha256=0b00d6fdb50995fe4a45dea13663493c841112e4068656854646f418fda13373
   erb (6.0.4) sha256=38e3803694be357fe2bfe312487c74beaf9fb4e5beb3e22498952fe1645b95d9
   erubi (1.13.1) sha256=a082103b0885dbc5ecf1172fede897f9ebdb745a4b97a5e8dc63953db1ee4ad9
-  ethos-gemkit (0.3.0) sha256=9c5152218e83d3304a46abcae38038499fc4acd58d8ac11ecd7f8b4792b7dc58
+  ethos-gemkit (0.3.1) sha256=7e317392087a0327aea850a99c8b2093c41bf3aed29fbd6238aa19c902804998
   faraday (2.14.3) sha256=1882247e6766615c8220b4392bf1d27f6ebb63d8e28267587cef1fb0bf37f278
   faraday-follow_redirects (0.5.0) sha256=5cde93c894b30943a5d2b93c2fe9284216a6b756f7af406a1e55f211d97d10ad
   faraday-net_http (3.4.4) sha256=0e78af151747ed1b00f33e25973b4bc220d7f16c00c39676817c8b12331eb588

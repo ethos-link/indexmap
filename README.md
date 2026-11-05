@@ -1,7 +1,7 @@
 # Indexmap
 
 [![Gem Version](https://badge.fury.io/rb/indexmap.svg)](https://badge.fury.io/rb/indexmap)
-[![Ruby](https://github.com/ethos-link/indexmap/actions/workflows/ruby.yml/badge.svg)](https://github.com/ethos-link/indexmap/actions/workflows/ruby.yml)
+[![Commit messages](https://github.com/ethos-link/indexmap/actions/workflows/commitlint.yml/badge.svg)](https://github.com/ethos-link/indexmap/actions/workflows/commitlint.yml)
 
 `indexmap` is a small Ruby gem for generating XML sitemaps from explicit Ruby data.
 
