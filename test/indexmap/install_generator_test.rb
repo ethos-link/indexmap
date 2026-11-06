@@ -14,7 +14,7 @@ class IndexmapInstallGeneratorTest < Minitest::Test
       RUBY
       Indexmap::Generators::InstallGenerator.start([], destination_root: destination)
       initializer = File.join(destination, "config/initializers/indexmap.rb")
-      source = File.read(initializer).sub('ENV.fetch("INDEXMAP_BASE_URL", "http://localhost:3000")', "Rails.origin")
+      source = File.read(initializer).sub('ENV.fetch("BASE_URL", "http://localhost:3000")', "Rails.origin")
       source = source.sub("# config.sections = -> { Sitemap.sections }", <<~RUBY.strip)
         config.format = :single_file
         config.entries = -> { [Indexmap::Entry.new(loc: Rails.origin + "/page")] }
