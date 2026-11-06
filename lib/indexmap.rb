@@ -4,6 +4,7 @@ require "cgi"
 require "date"
 require "fileutils"
 require "time"
+require "active_support/lazy_load_hooks"
 
 require_relative "indexmap/version"
 require_relative "indexmap/google_configuration"
@@ -67,3 +68,5 @@ module Indexmap
 end
 
 require_relative "indexmap/railtie" if defined?(Rails::Railtie)
+
+ActiveSupport.run_load_hooks(:indexmap, Indexmap)

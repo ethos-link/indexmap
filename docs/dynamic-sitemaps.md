@@ -11,9 +11,11 @@ Run `bin/rails generate indexmap:install`, then edit the generated configure blo
 
 ```ruby
 config.base_url = -> { ENV.fetch("PUBLIC_ORIGIN") }
-config.storage = Indexmap::Storage::Filesystem.new(
-  path: Rails.root.join("storage/sitemaps"), public_url: config.base_url
-)
+config.storage = -> do
+  Indexmap::Storage::Filesystem.new(
+    path: Rails.root.join("storage/sitemaps"), public_url: config.base_url
+  )
+end
 config.atomic = true
 config.max_urls = 45_000
 config.sections = -> { Sitemap.sections }
@@ -26,6 +28,10 @@ with app-owned routing rules. Do not serialize a relation or URL inventory into
 a job, reuse an exhausted source across refreshes, or use refresh time as the
 content's `lastmod`. Time-dependent eligibility needs recurring refreshes even
 when no record is updated. A batch scan is not a point-in-time database snapshot.
+
+The host must select public, canonical, indexable URLs. XML validation cannot
+infer authentication, redirects, publication state, or a page's `noindex` policy.
+Keep those eligibility checks in the manifest rather than adding a crawler.
 
 Generation stages XML on local temporary disk, validates the complete graph, then
 publishes. Entry sources are consumed once. Index mode splits a section before
@@ -144,15 +150,14 @@ class SitemapRefreshJob < ApplicationJob
   retry_on Indexmap::SupersededPublication, wait: :polynomially_longer, attempts: 3
 
   def perform(_version = nil)
-    Indexmap::HostConfiguration.apply
     Indexmap::TaskRunner.new.create
   end
 end
 ```
 
-Load the host configuration file first if it lives outside an initializer. The
-explicit require above makes the exception class available when a job is
-eager-loaded; it does not evaluate section sources. The host's `ApplicationJob` context,
+Keep configuration in the initializer load hook. The explicit require above
+makes the exception class available when a job is eager-loaded; it does not
+evaluate section sources. The host's `ApplicationJob` context,
 authorization, and transaction hooks remain authoritative. Pass scalar output or
 release identifiers and enqueue after source transactions commit and database
 preparation completes. A separate queue database is not transactionally coupled
@@ -186,7 +191,6 @@ This example assumes root-level storage keys and `index_filename = "sitemap.xml"
 
 ```ruby
 require "indexmap/sitemaps_controller"
-Indexmap::HostConfiguration.apply
 
 Rails.application.routes.draw do
   get "/sitemap.xml", to: Indexmap::SitemapsController.action(:show),

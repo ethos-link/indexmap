@@ -3,7 +3,7 @@
 | Term | Meaning |
 | --- | --- |
 | Configuration | `Indexmap::Configuration` holds gem settings, sources, outputs, callbacks, and robots policy. |
-| Configuration loader | Generated host module `Indexmap::HostConfiguration.apply`; applies the settings once per process. It is separate from the gem's configuration object. |
+| Load hook | `ActiveSupport.on_load(:indexmap)` registers host configuration without loading the gem during Rails boot. It runs when Indexmap loads, or immediately if already loaded. |
 | Output | One independently generated target with a stable root filename. Named outputs share storage and are not automatically linked into the default output. |
 | Section | A host-defined filename and enumerable of page entries, used in index mode. |
 | Page entry | `Indexmap::Entry`: the host's `loc` and optional meaningful content `lastmod`. |
@@ -19,9 +19,9 @@
 | Format | `:index` or `:single_file` selects XML shape. The separate `format` task changes whitespace in legacy artifacts. |
 | Robots policy | Crawl instructions served as `/robots.txt`. It is independent of sitemap storage and refresh scheduling. |
 
-Use these terms in host manifests and operational instructions. The generated
-host loader is `Indexmap::HostConfiguration`; `Indexmap::Configuration` is the
-gem's settings object. `Indexmap::Artifact` is rendered data and `::File` is Ruby's
-filesystem class. The former `IndexmapConfiguration` and `Indexmap::Storage::File`
-names are replaced by this unreleased contract change; see
-[UPGRADE.md](../UPGRADE.md#host-loader-and-rendered-artifacts) for migration.
+Use these terms in host manifests and operational instructions.
+`Indexmap::Configuration` owns settings; the native load hook registers host
+configuration. `Indexmap::Artifact` is rendered data and `::File` is Ruby's
+filesystem class. Former host loaders `IndexmapConfiguration` and
+`Indexmap::HostConfiguration` are superseded by the load hook. See
+[UPGRADE.md](../UPGRADE.md) for migration.
