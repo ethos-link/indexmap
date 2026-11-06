@@ -3,6 +3,50 @@
 require "test_helper"
 
 class IndexmapWriterTest < Minitest::Test
+  def test_transcodes_input_to_utf8_before_escaping_and_partitioning
+    location = "https://example.com/caf\xE9&tea".dup.force_encoding(Encoding::ISO_8859_1)
+    files = Indexmap::Writer.new(base_url: "https://example.com",
+      sections: [{filename: "sitemap-pages.xml", entries: [{loc: location}]}]).write
+
+    assert_equal Encoding::UTF_8, files.first.body.encoding
+    assert_includes files.first.body, "https://example.com/café&amp;tea"
+    assert files.first.body.valid_encoding?
+  end
+
+  def test_rejects_invalid_input_encoding
+    location = "https://example.com/\xFF".dup.force_encoding(Encoding::UTF_8)
+
+    assert_raises(Indexmap::ValidationError) do
+      Indexmap::Writer.new(base_url: "https://example.com",
+        entries: [{loc: location}], format: :single_file).write
+    end
+  end
+
+  def test_partitioning_counts_transcoded_and_escaped_bytes
+    entries = (1..3).map do |id|
+      {loc: ("https://example.com/#{id}" + "\xE9&" * 30).force_encoding(Encoding::ISO_8859_1)}
+    end
+    files = Indexmap::Writer.new(base_url: "https://example.com", max_bytes: 500,
+      sections: [{filename: "sitemap-pages.xml", entries: entries}]).write
+
+    assert_equal ["sitemap-pages.xml", "sitemap-pages-002.xml", "sitemap-pages-003.xml", "sitemap.xml"], files.map(&:filename)
+    files.each do |file|
+      assert_equal Encoding::UTF_8, file.body.encoding
+      assert_operator file.body.bytesize, :<=, 500
+    end
+    assert_includes files.first.body, "é&amp;"
+  end
+
+  def test_default_url_limit_splits_a_lazy_source_without_losing_entries
+    entries = (1..50_001).lazy.map { |id| {loc: "https://example.com/#{id}"} }
+    files = Indexmap::Writer.new(base_url: "https://example.com",
+      sections: [{filename: "sitemap-pages.xml", entries: entries}]).write
+
+    assert_equal [50_000, 1], files.first(2).map { |file| file.body.scan("<url>").size }
+    assert_includes files.last.body, "https://example.com/sitemap-pages-002.xml"
+    assert_includes files[1].body, "https://example.com/50001"
+  end
+
   def test_writes_sitemap_index_and_child_sitemap_documents
     sections = [
       Indexmap::Section.new(

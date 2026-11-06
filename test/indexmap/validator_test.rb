@@ -3,6 +3,18 @@
 require "test_helper"
 
 class IndexmapValidatorTest < Minitest::Test
+  def test_rejects_non_utf8_sitemaps_even_when_the_xml_is_valid
+    body = %(<?xml version="1.0" encoding="ISO-8859-1"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/page</loc></url></urlset>)
+
+    error = assert_raises(Indexmap::ValidationError) { validate_sitemap(body) }
+
+    assert_match "UTF-8", error.message
+  end
+
+  def test_accepts_utf8_with_a_byte_order_mark
+    assert validate_sitemap("\uFEFF" + %(<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.com/page</loc></url></urlset>))
+  end
+
   def test_validate_raises_for_missing_sitemap
     error = assert_raises(Indexmap::ValidationError) do
       Indexmap::Validator.new(configuration: configuration_with).validate!

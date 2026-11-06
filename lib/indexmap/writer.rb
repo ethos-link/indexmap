@@ -189,7 +189,13 @@ module Indexmap
     end
 
     def escape(value)
-      CGI.escapeHTML(value.to_s)
+      string = value.to_s
+      string = string.encode(Encoding::UTF_8) unless string.encoding == Encoding::UTF_8
+      raise ValidationError, "Sitemap text must be valid UTF-8" unless string.valid_encoding?
+
+      CGI.escapeHTML(string)
+    rescue EncodingError => error
+      raise ValidationError, "Sitemap text cannot be encoded as UTF-8: #{error.message}"
     end
   end
 end
