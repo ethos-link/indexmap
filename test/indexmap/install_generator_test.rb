@@ -6,56 +6,50 @@ require "open3"
 require "rbconfig"
 
 class IndexmapInstallGeneratorTest < Minitest::Test
-  def test_generates_lazy_initializer_and_task_loader
+  def test_generated_initializer_defers_origin_and_entries_in_both_load_orders
     Dir.mktmpdir do |destination|
       File.write(File.join(destination, "Rakefile"), <<~RUBY)
         require_relative "config/application"
         Rails.application.load_tasks
       RUBY
-
       Indexmap::Generators::InstallGenerator.start([], destination_root: destination)
-
       initializer = File.join(destination, "config/initializers/indexmap.rb")
-      rakefile = File.read(File.join(destination, "Rakefile"))
-
-      assert File.exist?(initializer)
-      assert_includes File.read(initializer), "module HostConfiguration"
-      assert_includes File.read(initializer), "Indexmap::HostConfiguration.apply if defined?(Indexmap::Configuration)"
-      assert_includes File.read(initializer), "Search-engine pings start from config.index_filename"
-      assert_includes rakefile, 'require "indexmap/tasks"'
-      assert_operator rakefile.index('require "indexmap/tasks"'), :<, rakefile.index('require_relative "config/application"')
-
-      _stdout, stderr, status = Open3.capture3(RbConfig.ruby, initializer)
-      assert status.success?, stderr
-
-      script = <<~RUBY
-        require "pathname"
-
-        module Rails
-          def self.public_path
-            Pathname.new(ENV.fetch("INDEXMAP_TEST_PUBLIC_PATH"))
-          end
-        end
-
-        require "indexmap"
-        load ARGV.fetch(0)
-
-        configuration = Indexmap.configuration
-        Indexmap::HostConfiguration.apply
-        abort "configuration replaced" unless Indexmap.configuration.equal?(configuration)
-        abort "base URL missing" unless configuration.base_url == "http://localhost:3000"
-        abort "index filename missing" unless configuration.index_filename == "sitemap.xml"
-        abort "storage rebuilt" unless configuration.storage.equal?(configuration.storage)
+      source = File.read(initializer).sub('ENV.fetch("INDEXMAP_BASE_URL", "http://localhost:3000")', "Rails.origin")
+      source = source.sub("# config.sections = -> { Sitemap.sections }", <<~RUBY.strip)
+        config.format = :single_file
+        config.entries = -> { [Indexmap::Entry.new(loc: Rails.origin + "/page")] }
       RUBY
-      _stdout, stderr, status = Open3.capture3(
-        {"INDEXMAP_TEST_PUBLIC_PATH" => File.join(destination, "public")},
-        RbConfig.ruby,
-        "-I#{File.expand_path("../../lib", __dir__)}",
-        "-e",
-        script,
-        initializer
-      )
-      assert status.success?, stderr
+      File.write(initializer, source)
+
+      ["before", "after"].each do |order|
+        script = <<~RUBY
+          require "pathname"
+          require "active_support/lazy_load_hooks"
+          module Rails
+            def self.public_path = Pathname.new(ENV.fetch("INDEXMAP_TEST_PUBLIC_PATH"))
+            def self.origin
+              raise "origin resolved before routes" unless @ready
+              "https://example.com"
+            end
+            def self.ready = @ready = true
+          end
+          require "indexmap" if ARGV.fetch(1) == "before"
+          load ARGV.fetch(0)
+          abort "Indexmap loaded during boot" if ARGV.fetch(1) == "after" && defined?(Indexmap::Configuration)
+          require "indexmap"
+          Rails.ready
+          result = Indexmap::TaskRunner.new.create
+          abort "wrong output" unless result.fetch(:files) == ["sitemap.xml"]
+          abort "wrong origin" unless Indexmap.configuration.storage.read("sitemap.xml").include?("https://example.com/page")
+          require "indexmap"
+          abort "configuration lost" unless Indexmap.configuration.base_url == "https://example.com"
+        RUBY
+        output, error, status = Open3.capture3(
+          {"INDEXMAP_TEST_PUBLIC_PATH" => File.join(destination, order)},
+          RbConfig.ruby, "-I#{File.expand_path("../../lib", __dir__)}", "-e", script, initializer, order
+        )
+        assert status.success?, output + error
+      end
     end
   end
 

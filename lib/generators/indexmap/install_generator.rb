@@ -18,19 +18,8 @@ module Indexmap
         return unless File.exist?(rakefile)
         return if File.read(rakefile).include?('require "indexmap/tasks"')
 
-        inject_into_file "Rakefile", rakefile_setup, before: /^require_relative ["']config\/application["']/
-      end
-
-      private
-
-      def rakefile_setup
-        <<~RUBY
-          indexmap_tasks_requested = Rake.application.options.show_tasks ||
-            ARGV.any? { |argument| ["-T", "--tasks"].include?(argument) }
-          require "indexmap/tasks" if indexmap_tasks_requested ||
-            (Rake.application.top_level_tasks + ARGV).any? { |argument| argument.start_with?("indexmap:") }
-
-        RUBY
+        inject_into_file "Rakefile", "require \"indexmap/tasks\"\n\n",
+          before: /^require_relative ["']config\/application["']/
       end
     end
   end

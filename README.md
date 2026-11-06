@@ -94,43 +94,43 @@ Run the install generator after adding the gem:
 bin/rails generate indexmap:install
 ```
 
-The generator creates `config/initializers/indexmap.rb` with an idempotent
-`Indexmap::HostConfiguration.apply` loader and adds conditional `indexmap/tasks`
-loading to the application's `Rakefile`. This preserves `bin/rails --tasks` and
-the `indexmap:*` tasks without loading Indexmap during normal Rails boot.
+The generator creates `config/initializers/indexmap.rb` using Rails' native
+load hook and adds `require "indexmap/tasks"` to the application's `Rakefile`.
+Normal web and worker boot does not load Indexmap. Rakefiles run only for tasks,
+so task discovery needs no argument parsing.
 
-Customize the `Indexmap.configure` block inside the generated initializer:
+Customize the generated initializer:
 
 ```ruby
-Indexmap.configure do |config|
-  config.base_url = -> { "https://example.com" }
-  config.storage = Indexmap::Storage::Filesystem.new(
-    path: Rails.public_path,
-    public_url: config.base_url
-  )
-  config.sections = -> do
-    [
-      Indexmap::Section.new(
-        filename: "sitemap-marketing.xml",
-        entries: [
-          Indexmap::Entry.new(loc: "https://example.com/")
-        ]
+ActiveSupport.on_load(:indexmap) do
+  Indexmap.configure do |config|
+    config.base_url = -> { ENV.fetch("INDEXMAP_BASE_URL", "https://example.com") }
+    config.storage = -> do
+      Indexmap::Storage::Filesystem.new(
+        path: Rails.public_path, public_url: config.base_url
       )
-    ]
+    end
+    config.sections = -> { Sitemap.sections }
   end
 end
 ```
 
-Runtime callers and jobs must apply the generated configuration before using
-Indexmap:
+Keep storage, route helpers and source queries inside their callables. Passing
+`public_url: config.base_url` while constructing an adapter outside a callable
+resolves the origin immediately, before routes or later initializers may exist.
+Moving that eager expression to `after_initialize` does not make route helpers
+available reliably. The storage callable resolves once per operation.
+
+Runtime callers only require the gem and invoke the operation:
 
 ```ruby
-Indexmap::HostConfiguration.apply
-Indexmap.create
+require "indexmap"
+Indexmap::TaskRunner.new.create
 ```
 
-Rake tasks apply it automatically because `indexmap/tasks` loads the gem before
-Rails evaluates the initializer.
+The load hook applies configuration whether the gem loads before or after the
+initializer. No host module, mutex, explicit apply call, or custom task loader
+is needed. Existing manually configured Ruby callers remain supported.
 
 Then run:
 
@@ -151,8 +151,8 @@ revision-checked root activation. See [dynamic sitemaps](docs/dynamic-sitemaps.m
 ### Background Generation
 
 Keep the refresh job and its scheduling in the host application. Indexmap does
-not select a queue adapter, run workers, or deduplicate jobs. Apply the generated
-configuration inside the job. Use `Indexmap::TaskRunner.new.create` for the
+not select a queue adapter, run workers, or deduplicate jobs. Require the gem
+inside the job. Use `Indexmap::TaskRunner.new.create` for the
 rake task's complete lifecycle, including `after_create` callbacks and IndexNow
 key-file handling; `Indexmap.create` only generates the selected output.
 
@@ -177,7 +177,7 @@ class SitemapRefreshJob < ApplicationJob
   )
 
   def perform(_version)
-    Indexmap::HostConfiguration.apply
+    require "indexmap"
     Indexmap::TaskRunner.new.create
   end
 end
@@ -201,7 +201,7 @@ class SitemapRefreshJob < ApplicationJob
     duration: 30.minutes, on_conflict: :block
 
   def perform(_version)
-    Indexmap::HostConfiguration.apply
+    require "indexmap"
     Indexmap::TaskRunner.new.create
   end
 end
@@ -304,15 +304,14 @@ In the application's `config/routes.rb`, load and mount the endpoint explicitly:
 
 ```ruby
 require "indexmap/robots_controller"
-Indexmap::HostConfiguration.apply
 
 Rails.application.routes.draw do
   get "/robots.txt", to: Indexmap::RobotsController.action(:show)
 end
 ```
 
-If the configuration loader lives outside an initializer, require that file
-before applying it. Remove `public/robots.txt` so it cannot shadow the route.
+Keep the load hook in an initializer. Remove `public/robots.txt` so it cannot
+shadow the route.
 The controller supports GET, HEAD, and conditional requests, uses a one-hour
 public cache, and does not inherit application authentication or browser gates.
 Set `PUBLIC_INDEXING` only for the intended public deployment; production-mode
@@ -490,7 +489,7 @@ Then the job can stay small:
 ```ruby
 class Insights::SitemapRefreshJob < ApplicationJob
   def perform
-    Indexmap::HostConfiguration.apply
+    require "indexmap"
     Indexmap.create(:insights_data)
   end
 end

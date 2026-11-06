@@ -18,14 +18,14 @@ See the [pipeline diagram](architecture.md) for the generation/publication bound
 
 Follow the [Rails installation](../README.md#rails-usage), including
 `require: false` and `bin/rails generate indexmap:install`. Edit the configure
-block inside `Indexmap::HostConfiguration.apply`, keeping its idempotent wrapper.
-Construct storage once there when its settings are fixed:
+block inside `ActiveSupport.on_load(:indexmap)`. Keep storage construction lazy
+when it uses the configured origin:
 
 ```ruby
-config.base_url = ENV.fetch("INDEXMAP_BASE_URL", "http://localhost:3000")
-config.storage = Indexmap::Storage::Filesystem.new(
-  path: Rails.public_path, public_url: config.base_url
-)
+config.base_url = -> { ENV.fetch("INDEXMAP_BASE_URL", "http://localhost:3000") }
+config.storage = -> do
+  Indexmap::Storage::Filesystem.new(path: Rails.public_path, public_url: config.base_url)
+end
 ```
 
 Always set `INDEXMAP_BASE_URL` to the actual public origin in deployment. For

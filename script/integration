@@ -33,8 +33,20 @@ Dir.mktmpdir("indexmap-integration") do |directory|
   %w[good_job:install indexmap:install].each do |generator|
     run(*command, "generate", generator, "--quiet", directory: app)
   end
+  File.write(File.join(app, "config/routes.rb"), <<~CODE)
+    Rails.application.routes.draw do
+      root to: ->(_env) { [200, {"content-type" => "text/plain"}, ["Home"]] }
+    end
+  CODE
+  File.write(File.join(app, "config/initializers/marketing.rb"), <<~CODE)
+    Rails.application.config.x.sitemap_host = "localhost"
+  CODE
   initializer = File.join(app, "config/initializers/indexmap.rb")
-  File.write(initializer, File.read(initializer).sub("# config.sections = -> { Sitemap.sections }", <<~CODE.strip))
+  template = File.read(initializer).sub(
+    'ENV.fetch("INDEXMAP_BASE_URL", "http://localhost:3000")',
+    'Rails.application.routes.url_helpers.root_url(host: Rails.configuration.x.sitemap_host, port: 3000, protocol: "http").delete_suffix("/")'
+  )
+  File.write(initializer, template.sub("# config.sections = -> { Sitemap.sections }", <<~CODE.strip))
     config.format = :single_file
             config.entries = -> { [Indexmap::Entry.new(loc: "http://localhost:3000/")] }
   CODE
@@ -49,37 +61,42 @@ Dir.mktmpdir("indexmap-integration") do |directory|
   File.write(File.join(app, "app/jobs/integration_refresh_job.rb"), <<~CODE)
     class IntegrationRefreshJob < ApplicationJob
       def perform
-        Indexmap::HostConfiguration.apply
+        require "indexmap"
         Indexmap::TaskRunner.new.create
       end
     end
   CODE
   ENV["INDEXMAP_PATH"] = File.join(directory, "sitemaps")
   File.write(File.join(app, "config/initializers/indexmap.rb"), <<~CODE)
-    module Indexmap
-      module HostConfiguration
-        def self.apply
-          require "indexmap"
-          Indexmap.configure do |config|
-            config.base_url = "https://example.com"
-            config.index_filename = "sitemap.xml"
-            config.format = :index
-            config.atomic = true
-            config.max_urls = 2
-            config.storage = Indexmap::Storage::Filesystem.new(path: ENV.fetch("INDEXMAP_PATH"))
-            config.sections = -> do
-              entries = PublicPage.where(published: true).find_each.lazy.map do |page|
-                Indexmap::Entry.new(loc: "https://example.com/" + page.slug, lastmod: page.updated_at)
-              end
-              [Indexmap::Section.new(filename: "sitemap-pages.xml", entries: entries)]
-            end
+    ActiveSupport.on_load(:indexmap) do
+      Indexmap.configure do |config|
+        config.base_url = "https://example.com"
+        config.index_filename = "sitemap.xml"
+        config.format = :index
+        config.atomic = true
+        config.max_urls = 2
+        config.storage = -> { Indexmap::Storage::Filesystem.new(path: ENV.fetch("INDEXMAP_PATH")) }
+        config.sections = -> do
+          entries = PublicPage.where(published: true).find_each.lazy.map do |page|
+            Indexmap::Entry.new(loc: "https://example.com/" + page.slug, lastmod: page.updated_at)
           end
+          [Indexmap::Section.new(filename: "sitemap-pages.xml", entries: entries)]
         end
       end
     end
-    Indexmap::HostConfiguration.apply if defined?(Indexmap::Configuration)
     ActiveJob::Base.queue_adapter = ENV.fetch("INDEXMAP_ADAPTER", "good_job").to_sym
     Rails.application.config.active_storage.service = :test
+  CODE
+  File.delete(File.join(app, "public/sitemap.xml"))
+  File.write(File.join(app, "config/routes.rb"), <<~CODE)
+    require "indexmap/sitemaps_controller"
+
+    Rails.application.routes.draw do
+      get "/sitemap.xml", to: Indexmap::SitemapsController.action(:show),
+        defaults: {filename: "sitemap.xml"}, format: false
+      get "/:filename", to: Indexmap::SitemapsController.action(:show),
+        constraints: {filename: /sitemap-[a-f0-9]{16}-[a-f0-9]{32}-[1-9][0-9]*-[1-9][0-9]*[.]xml/}, format: false
+    end
   CODE
   run(*command, "db:drop", "db:create", "db:migrate", directory: app)
   run(*command, "runner", "load Rails.root.join('db/queue_schema.rb')", directory: app)
@@ -87,5 +104,6 @@ Dir.mktmpdir("indexmap-integration") do |directory|
   run(*command, "--tasks", directory: app)
   run(*command, "indexmap:sitemap:create", directory: app)
   run(*command, "indexmap:sitemap:validate", directory: app)
+  run(RbConfig.ruby, Gem.bin_path("rake", "rake"), "indexmap:sitemap:validate", directory: app)
   run(*command, "runner", File.join(root, "test/integration/queue_checks.rb"), directory: app)
 end

@@ -7,9 +7,24 @@ require "rbconfig"
 
 class QueueChecks < Minitest::Test
   def setup
-    Indexmap::HostConfiguration.apply
+    Indexmap.reset!
+    load Rails.root.join("config/initializers/indexmap.rb")
     PublicPage.delete_all
     5.times { |id| PublicPage.create!(slug: "page-#{id}", published: true) }
+  end
+
+  def test_http_serves_the_configured_publication_without_evaluating_sources
+    result = Indexmap::TaskRunner.new.create
+    Indexmap.configuration.sections = -> { raise "HTTP must not evaluate source records" }
+    client = Rack::MockRequest.new(Rails.application)
+
+    root = client.get("/sitemap.xml")
+    assert_equal 200, root.status
+    assert_includes root.body, result.fetch(:files).first
+    child = client.get("/" + result.fetch(:files).first)
+    assert_equal 200, child.status
+    assert_includes child.body, "https://example.com/page-0"
+    assert_includes child["cache-control"], "immutable"
   end
 
   def test_good_job_executes_database_projection_and_surfaces_validation_failure

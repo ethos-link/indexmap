@@ -8,6 +8,50 @@ GitHub Actions runs commitlint and release packaging/publication only.
 
 ## Next
 
+### Rails configuration without a host loader
+
+The installer now generates `ActiveSupport.on_load(:indexmap)` around the existing
+`Indexmap.configure` block. It works when tasks load the gem before initializers
+and when jobs first require it after boot. Plain Ruby `Indexmap.configure` is
+unchanged. Existing host loaders continue working until migrated.
+
+For an existing app:
+
+1. Keep the app's configure block in `config/initializers/indexmap.rb`, wrapped in
+   `ActiveSupport.on_load(:indexmap) do ... end`. Remove the surrounding host module,
+   mutex, `@applied` guard, and bottom-of-file apply call. Do not keep both owners.
+2. Keep `base_url`, storage construction, route calls and source queries lazy.
+   Use `config.storage = -> { Indexmap::Storage::Filesystem.new(path: ...,
+   public_url: config.base_url) }`. The previous template evaluated the origin at
+   boot, which fails when it needs unloaded routes or later initializer settings.
+   An `after_initialize` wrapper is not a substitute for deferring evaluation.
+3. Replace host-loader calls in models, jobs, routes and scripts with `require "indexmap"`
+   before the gem operation. Remove any separate configuration-file loads.
+4. Use one `require "indexmap/tasks"` in the Rakefile before application loading.
+   Rakefiles are not web/worker boot paths; argument-sensitive loaders and duplicate
+   task files are unnecessary. The installer preserves existing loaders and
+   authored initializer content; migrate those manually rather than overwriting.
+5. Verify web/worker boot, Rails task listing, create/validate via Rails and Rake,
+   a real refresh job, and HTTP delivery against the same configuration.
+
+### Adopt the publication pipeline
+
+Use built-in storage instead of copying file writes and promotion into the host.
+`TaskRunner#create` stages, partitions and validates before publishing. Remove
+outer staging directories, repeated validation, manual URL-count partitions,
+and whole-inventory arrays where the host can supply lazy entries. Keep domain
+eligibility, canonical paths, grouping and meaningful `lastmod` in the app.
+
+For mutable indexes, use atomic publication to avoid mixed generations. Adopt
+`config.atomic = true` together with persistent shared storage, routes and cache
+policy for generated children, bounded retries for superseded builds, and a
+separate prune schedule. Remove filename-based cleanup and retention callbacks;
+they can delete immutable children referenced by cached roots. Single-file build
+outputs can keep their existing delivery. See [deployment](docs/deployment.md)
+and [dynamic sitemaps](docs/dynamic-sitemaps.md) for the complete contracts.
+
+### UTF-8 output
+
 Sitemap text is converted to UTF-8 before XML escaping and byte partitioning.
 Invalid or unconvertible strings raise `Indexmap::ValidationError`. The validator
 also rejects XML documents that declare another encoding, even when their XML is
