@@ -6,6 +6,14 @@ or pings sitemaps with `indexmap`.
 Run `bundle exec rake verify` locally before pushing or preparing a release.
 GitHub Actions runs commitlint and release packaging/publication only.
 
+## Next
+
+Sitemap text is converted to UTF-8 before XML escaping and byte partitioning.
+Invalid or unconvertible strings raise `Indexmap::ValidationError`. The validator
+also rejects XML documents that declare another encoding, even when their XML is
+otherwise valid. Regenerate older non-UTF-8 files before validating or submitting
+them. Existing UTF-8 output and partition names are unchanged.
+
 ## 0.10.0
 
 ### Shared development and release tooling

@@ -103,6 +103,9 @@ module Indexmap
           next unless node.node_type == Nokogiri::XML::Reader::TYPE_ELEMENT
 
           if node.depth == 0
+            unless Encoding.find(reader.encoding || "UTF-8") == Encoding::UTF_8
+              raise ValidationError, "Sitemap must use UTF-8 encoding: #{filename}"
+            end
             root = node.local_name
             unless %w[urlset sitemapindex].include?(root)
               raise ValidationError, "Invalid sitemap root element in #{filename}: #{root}"
