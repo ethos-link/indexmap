@@ -104,7 +104,7 @@ Customize the generated initializer:
 ```ruby
 ActiveSupport.on_load(:indexmap) do
   Indexmap.configure do |config|
-    config.base_url = -> { ENV.fetch("INDEXMAP_BASE_URL", "https://example.com") }
+    config.base_url = -> { ENV.fetch("BASE_URL", "https://example.com") }
     config.storage = -> do
       Indexmap::Storage::Filesystem.new(
         path: Rails.public_path, public_url: config.base_url
