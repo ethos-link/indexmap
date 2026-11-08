@@ -36,7 +36,7 @@ These optional methods avoid whole-file read/write fallbacks during generation
 and validation. Both are mandatory for the sitemap HTTP controller's reads:
 
 ```ruby
-storage.open(filename) { |io| ... } # readable binary IO, closed after the block
+storage.open(filename) { |io| io.read(1024) } # readable binary IO, closed after the block
 storage.metadata(filename)         # {etag:, bytes:, last_modified:}
 storage.write_io(filename, io, content_type: "application/xml")
 ```
