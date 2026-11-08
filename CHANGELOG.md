@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-11-08
+
+
+### Added
+
+- accept explicit changed entries
+
+- accept explicit changed entries ([#37](https://github.com/ethos-link/indexmap/pull/37))
+
+
+
+
+### Changed
+
+- use BASE_URL in generated initializers
+
+- use BASE_URL in generated initializers ([#36](https://github.com/ethos-link/indexmap/pull/36))
+
+- merge main and preserve both upgrade instructions
+
+
+
 ## [0.11.0] - 2026-11-06
 
 
