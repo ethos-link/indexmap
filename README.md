@@ -529,6 +529,8 @@ The built-in validator checks for:
 ## Search Engine Ping
 
 `indexmap` can ping Google Search Console and IndexNow after sitemap generation.
+For known page updates or removals, pass `entries:` directly to
+`Indexmap::Pinger::IndexNow#ping`; see [direct change submission](docs/search-engine-ping.md#submit-known-changes-directly).
 See [Search engine ping](docs/search-engine-ping.md) for Google credential
 setup, Search Console property configuration, and IndexNow key provisioning.
 

@@ -375,6 +375,99 @@ class IndexmapPingerIndexNowTest < Minitest::Test
     assert_equal 1, calls
   end
 
+  def test_pings_explicit_entries_without_a_sitemap_or_date_filter
+    configuration = configuration_with
+    configuration.index_now.key = VALID_KEY
+    entries = [
+      Indexmap::Entry.new(loc: "https://www.example.com/updated", lastmod: "2020-01-01"),
+      Indexmap::Entry.new(loc: "https://www.example.com/deleted")
+    ]
+    request = stub_request(:post, "https://api.indexnow.org/indexnow").with do |request|
+      JSON.parse(request.body).fetch("urlList") == entries.map(&:loc)
+    end.to_return(status: 202)
+    events = []
+
+    with_env("SINCE" => "invalid", "INDEXNOW_RECENT_HOURS" => "24") do
+      result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping(entries: entries) { |event| events << event }
+
+      assert_equal :submitted, result.fetch(:status)
+      assert_equal 2, result.fetch(:url_count)
+    end
+
+    assert_requested request, times: 1
+    assert_equal entries.map(&:loc), events.last.fetch(:urls)
+    assert_equal :validation_pending, events.last.fetch(:receipt)
+  end
+
+  def test_explicit_empty_entries_do_not_fall_back_to_the_sitemap
+    configuration = configuration_with(storage: sitemap_storage)
+    configuration.index_now.key = VALID_KEY
+
+    result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping(entries: [])
+
+    assert_equal({status: :skipped, reason: :no_urls}, result)
+    assert_not_requested(:post, "https://api.indexnow.org/indexnow")
+  end
+
+  def test_validates_all_explicit_entries_before_sending_any_batch
+    configuration = configuration_with
+    configuration.index_now.key = VALID_KEY
+    configuration.index_now.max_urls_per_request = 1
+    entries = [Indexmap::Entry.new(loc: "https://www.example.com/updated"),
+      Indexmap::Entry.new(loc: "https://another.example.com/deleted")]
+
+    assert_raises(Indexmap::ValidationError) do
+      Indexmap::Pinger::IndexNow.new(configuration: configuration).ping(entries: entries)
+    end
+
+    assert_not_requested(:post, "https://api.indexnow.org/indexnow")
+  end
+
+  def test_batches_explicit_entries_and_reports_partial_delivery
+    configuration = configuration_with
+    configuration.index_now.key = VALID_KEY
+    configuration.index_now.max_urls_per_request = 1
+    entries = [Indexmap::Entry.new(loc: "https://www.example.com/updated"),
+      Indexmap::Entry.new(loc: "https://www.example.com/deleted")]
+    stub_request(:post, "https://api.indexnow.org/indexnow").to_return(status: 200).then.to_return(status: 429)
+    events = []
+
+    result = Indexmap::Pinger::IndexNow.ping(configuration: configuration, entries: entries) { |event| events << event }
+
+    assert_equal :partial, result.fetch(:status)
+    assert_equal 1, result.fetch(:url_count)
+    assert_equal 429, result.fetch(:failures).first.fetch(:status_code)
+    assert_equal [entries.last.loc], events.last.fetch(:urls)
+  end
+
+  def test_explicit_entries_reuse_dry_run_and_deduplicate_urls
+    configuration = configuration_with
+    configuration.index_now.key = VALID_KEY
+    configuration.index_now.dry_run = true
+    entry = Indexmap::Entry.new(loc: "https://www.example.com/updated")
+
+    result = Indexmap::Pinger::IndexNow.new(configuration: configuration).ping(entries: [entry, entry])
+
+    assert_equal :dry_run, result.fetch(:status)
+    assert_equal 1, result.fetch(:url_count)
+    assert_not_requested(:post, "https://api.indexnow.org/indexnow")
+  end
+
+  def test_rejects_invalid_explicit_locations_before_submission
+    configuration = configuration_with
+    configuration.index_now.key = VALID_KEY
+    [nil, "", "/relative", "ftp://www.example.com/file", "https://user@www.example.com/private",
+      "https://www.example.com/page?query=value", "https://www.example.com/page#fragment",
+      "http://www.example.com/page", "https://www.example.com:8443/page",
+      "https://www.example.com/#{"x" * 2048}"].each do |location|
+      assert_raises(Indexmap::ValidationError) do
+        Indexmap::Pinger::IndexNow.new(configuration: configuration).ping(entries: [Indexmap::Entry.new(loc: location)])
+      end
+    end
+
+    assert_not_requested(:post, "https://api.indexnow.org/indexnow")
+  end
+
   private
 
   def with_env(overrides)

@@ -10,12 +10,16 @@ module Indexmap
     class IndexNow < Base
       KEY_FORMAT = /\A[a-f0-9]{32}\z/
 
+      def self.ping(entries: nil, **options, &block)
+        new(**options).ping(entries: entries, &block)
+      end
+
       def initialize(configuration: Indexmap.configuration, storage: nil, connection: nil)
         super(configuration: configuration, storage: storage)
         @connection = connection
       end
 
-      def ping
+      def ping(entries: nil)
         api_key = read_api_key
         unless api_key
           logger.debug("IndexNow API key is not configured.")
@@ -23,7 +27,7 @@ module Indexmap
         end
 
         batch_size = max_urls_per_request
-        entries = entries_to_ping
+        entries = entries.nil? ? entries_to_ping : explicit_entries(entries)
         results = entries.each_slice(batch_size).map.with_index(1) do |batch, number|
           urls = batch.map(&:loc)
 
@@ -109,6 +113,12 @@ module Indexmap
 
       def index_now_configuration
         configuration.index_now
+      end
+
+      def explicit_entries(entries)
+        entries = entries.to_a
+        Validator.new(configuration: configuration).validate_locations!(entries)
+        entries.uniq(&:loc)
       end
 
       def entries_to_ping
