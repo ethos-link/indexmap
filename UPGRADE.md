@@ -14,8 +14,10 @@ GitHub Actions runs commitlint and release packaging/publication only.
 `Indexmap::Entry` objects. Existing calls without this keyword retain sitemap
 selection. An explicit list submits only those URLs, including removed URLs,
 without reading sitemap files or applying date filters. Empty lists skip
-submission. Replace app-owned IndexNow HTTP clients with this API and use its
-per-attempt receipts to update app-owned delivery state. See
+submission. Replace app-owned IndexNow HTTP clients with this API. Prefer
+independent queued deliveries per provider and URL, raising retryable failure
+results into the host queue policy. A per-provider delivery table is optional,
+not required; larger batches can use per-attempt receipts to retain progress. See
 [direct change submission](docs/search-engine-ping.md#submit-known-changes-directly).
 
 ### Sitemap origin override

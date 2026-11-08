@@ -55,11 +55,59 @@ fall back to the sitemap. Omitting `entries` retains sitemap selection.
 Explicit entries reuse configured keys, key locations, endpoints, batch limits,
 dry runs, bounded retries and result/event reporting. The class-level
 `Indexmap::Pinger::IndexNow.ping(entries: entries)` form is also supported.
-For durable delivery, keep notification state and scheduling in the application.
+For durable delivery, use the host application's existing queue. Enqueue a
+separate job for each provider and URL (or independently retryable batch). One
+job class can take a `provider:` argument; each provider still gets its own job
+instance. This isolates retries without requiring a per-provider delivery table.
+GoodJob and Solid Queue can both use Active Job's `retry_on` policy. Keep
+Indexmap's `max_attempts` at its default of one when the queue owns retries.
+
+Indexmap returns failure results rather than raising for HTTP errors, timeouts
+and connection failures. The application must turn retryable results into
+exceptions for queue retries to run. A successful HTTP 202 is a receipt, not an
+error. Treat permanent rejections as failed jobs for operator inspection; avoid
+retrying invalid URLs indefinitely. A missing key needs correction and must not
+be counted as successful delivery. A deliberate dry run makes no submission.
+
+For example, an application can enqueue one URL at a time:
+
+```ruby
+class IndexNowPingJob < ApplicationJob
+  class RetryableError < StandardError; end
+  class RejectedError < StandardError; end
+
+  retry_on RetryableError, wait: :polynomially_longer, attempts: 10
+
+  def perform(url)
+    require "indexmap"
+    result = Indexmap::Pinger::IndexNow.new.ping(entries: [Indexmap::Entry.new(loc: url)])
+    return if [:submitted, :dry_run].include?(result.fetch(:status))
+
+    if result.fetch(:status) == :skipped
+      raise RetryableError, result.fetch(:reason).to_s
+    end
+
+    failure = result.fetch(:failures).first
+    status = failure[:status_code]
+    if failure[:reason] == :unknown_delivery || [401, 403, 429].include?(status) || (status && status >= 500)
+      raise RetryableError, "IndexNow delivery failed: #{status || failure[:reason]}"
+    else
+      raise RejectedError, "IndexNow rejected the URL: #{status}"
+    end
+  end
+end
+```
+
+Retain the URL in the queued arguments, or in a stable application notification
+that survives content deletion. If an application stores notification revisions,
+skip superseded changes before sending. An outbox can bridge content changes and
+enqueueing when needed; it does not need to track provider retries. Delivery is
+at least once: a crash or timeout after remote receipt can cause duplicates.
+
+Larger jobs must isolate failed batches instead of retrying the whole inventory.
 Each `attempt_finished` event identifies its URLs and result; later attempts for
-the same URLs supersede earlier receipts. Retain successful batches when another
-batch fails. A dry run or missing key produces no delivery receipts, so leave
-those notifications pending.
+the same URLs supersede earlier receipts. Persist per-batch progress only when
+the workflow needs it, rather than requiring a separate ledger for every app.
 
 ## Google Search Console
 
@@ -337,9 +385,10 @@ Permanent errors and HTTP 202 do not retry. Both report events include an
 `attempt` number, so an initially uncertain attempt remains visible even when a
 later attempt succeeds. Summary counts describe final batch outcomes.
 
-Do not stack whole-job retries around a partially successful submission: that can
-resend earlier successful batches. Retries do not survive process restarts and
-may duplicate a remotely received request after a timeout. Generation and
+Use queue retries for one URL or one independently retryable batch. Do not wrap
+a partially successful inventory submission in whole-job retries: that can
+resend earlier successful batches. Indexmap's in-process retries do not survive
+process restarts and may duplicate a remotely received request after a timeout. Generation and
 submission remain separate. Preview and sending validate and spool the complete
 reachable inventory before yielding selection or issuing requests; selected URLs
 are then read in bounded batches instead of retaining an inventory-sized array.
