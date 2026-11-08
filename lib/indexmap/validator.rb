@@ -30,10 +30,7 @@ module Indexmap
       Dir.mktmpdir("indexmap-validation") do |directory|
         duplicates = Duplicates.new(directory: directory)
         validate_sitemap_files!(sitemap_filename) do |entry|
-          validate_parameterized_urls!([entry])
-          validate_fragment_urls!([entry])
-          validate_absolute_http_urls!([entry])
-          validate_same_host_urls!([entry])
+          validate_locations!([entry])
           validate_lastmods!([entry])
           yield entry if block_given?
           duplicates.add(entry.loc)
@@ -44,6 +41,18 @@ module Indexmap
       end
       raise ValidationError, "Sitemap has no URLs" if count == 0
 
+      true
+    end
+
+    def validate_locations!(entries)
+      if entries.any? { |entry| entry.loc.to_s.length >= 2048 }
+        raise ValidationError, "Sitemap loc must be shorter than 2,048 characters"
+      end
+
+      validate_parameterized_urls!(entries)
+      validate_fragment_urls!(entries)
+      validate_absolute_http_urls!(entries)
+      validate_same_host_urls!(entries)
       true
     end
 

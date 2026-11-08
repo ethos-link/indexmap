@@ -23,6 +23,44 @@ Google submits that sitemap URL once. IndexNow recursively reads its referenced
 child sitemaps and submits their page URLs. Other sitemap-shaped files left in
 storage are ignored unless the authoritative sitemap references them.
 
+## Submit known changes directly
+
+When an application already knows which pages changed, pass those entries to
+IndexNow without generating or reading a sitemap:
+
+```ruby
+entries = [
+  Indexmap::Entry.new(loc: "https://example.com/articles/updated"),
+  Indexmap::Entry.new(loc: "https://example.com/jobs/removed")
+]
+
+result = Indexmap::Pinger::IndexNow.new.ping(entries: entries) do |event|
+  if event[:event] == :attempt_finished
+    record_receipt(event.fetch(:urls), event)
+  end
+end
+```
+
+Use this for publication events, imports, edits, and removals. IndexNow receives
+the same URL notification for each kind of change; removed pages do not need to
+remain in the sitemap. Entries must use absolute HTTP(S) URLs matching the
+configured base URL's scheme, host and port, without queries, fragments or
+userinfo. All explicit entries are validated before the first submission, and
+repeated URLs are submitted once.
+
+An explicit list bypasses `SINCE` and `INDEXNOW_RECENT_HOURS`, regardless of
+`lastmod`. An empty list returns `status: :skipped, reason: :no_urls`; it does not
+fall back to the sitemap. Omitting `entries` retains sitemap selection.
+
+Explicit entries reuse configured keys, key locations, endpoints, batch limits,
+dry runs, bounded retries and result/event reporting. The class-level
+`Indexmap::Pinger::IndexNow.ping(entries: entries)` form is also supported.
+For durable delivery, keep notification state and scheduling in the application.
+Each `attempt_finished` event identifies its URLs and result; later attempts for
+the same URLs supersede earlier receipts. Retain successful batches when another
+batch fails. A dry run or missing key produces no delivery receipts, so leave
+those notifications pending.
+
 ## Google Search Console
 
 Google submission uses the Search Console Sitemaps API. It submits sitemap URLs

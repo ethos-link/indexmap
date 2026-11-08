@@ -8,6 +8,16 @@ GitHub Actions runs commitlint and release packaging/publication only.
 
 ## Next
 
+### Explicit IndexNow entries
+
+`Indexmap::Pinger::IndexNow#ping` and `.ping` now accept `entries:` containing
+`Indexmap::Entry` objects. Existing calls without this keyword retain sitemap
+selection. An explicit list submits only those URLs, including removed URLs,
+without reading sitemap files or applying date filters. Empty lists skip
+submission. Replace app-owned IndexNow HTTP clients with this API and use its
+per-attempt receipts to update app-owned delivery state. See
+[direct change submission](docs/search-engine-ping.md#submit-known-changes-directly).
+
 ### Rails configuration without a host loader
 
 The installer now generates `ActiveSupport.on_load(:indexmap)` around the existing
