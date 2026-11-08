@@ -22,7 +22,7 @@ Gem::Specification.new do |spec|
     "source_code_uri" => repo,
     "bug_tracker_uri" => "#{repo}/issues",
     "changelog_uri" => "#{repo}/blob/#{reference}/CHANGELOG.md",
-    "documentation_uri" => "#{repo}/blob/#{reference}/README.md",
+    "documentation_uri" => spec.homepage,
     "funding_uri" => "https://www.reviato.com/",
     "github_repo" => "ssh://github.com/ethos-link/indexmap",
     "allowed_push_host" => "https://rubygems.org",
