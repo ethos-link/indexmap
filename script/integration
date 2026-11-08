@@ -43,7 +43,7 @@ Dir.mktmpdir("indexmap-integration") do |directory|
   CODE
   initializer = File.join(app, "config/initializers/indexmap.rb")
   template = File.read(initializer).sub(
-    'ENV.fetch("INDEXMAP_BASE_URL", "http://localhost:3000")',
+    'ENV.fetch("BASE_URL", "http://localhost:3000")',
     'Rails.application.routes.url_helpers.root_url(host: Rails.configuration.x.sitemap_host, port: 3000, protocol: "http").delete_suffix("/")'
   )
   File.write(initializer, template.sub("# config.sections = -> { Sitemap.sections }", <<~CODE.strip))

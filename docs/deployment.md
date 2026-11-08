@@ -22,13 +22,13 @@ block inside `ActiveSupport.on_load(:indexmap)`. Keep storage construction lazy
 when it uses the configured origin:
 
 ```ruby
-config.base_url = -> { ENV.fetch("INDEXMAP_BASE_URL", "http://localhost:3000") }
+config.base_url = -> { ENV.fetch("BASE_URL", "http://localhost:3000") }
 config.storage = -> do
   Indexmap::Storage::Filesystem.new(path: Rails.public_path, public_url: config.base_url)
 end
 ```
 
-Always set `INDEXMAP_BASE_URL` to the actual public origin in deployment. For
+Always set `BASE_URL` to the actual public origin in deployment. For
 private filesystem storage change `path` to `Rails.root.join("storage/sitemaps")`
 and explicitly serve it through the Rails controller or web server. That directory
 does not become publicly reachable merely because it has a `public_url` setting.
@@ -75,8 +75,8 @@ advertising it.
 ## Development verification
 
 ```sh
-INDEXMAP_BASE_URL=http://localhost:3000 bin/rails indexmap:sitemap:create
-INDEXMAP_BASE_URL=http://localhost:3000 bin/rails indexmap:sitemap:validate
+BASE_URL=http://localhost:3000 bin/rails indexmap:sitemap:create
+BASE_URL=http://localhost:3000 bin/rails indexmap:sitemap:validate
 bin/rails server
 ```
 
@@ -100,9 +100,9 @@ release step, then include every generated root and child in the deployed
 artifacts:
 
 ```sh
-RAILS_ENV=production INDEXMAP_BASE_URL=https://example.com \
+RAILS_ENV=production BASE_URL=https://example.com \
   bin/rails indexmap:sitemap:create
-RAILS_ENV=production INDEXMAP_BASE_URL=https://example.com \
+RAILS_ENV=production BASE_URL=https://example.com \
   bin/rails indexmap:sitemap:validate
 ```
 

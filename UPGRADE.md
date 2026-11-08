@@ -18,6 +18,19 @@ submission. Replace app-owned IndexNow HTTP clients with this API and use its
 per-attempt receipts to update app-owned delivery state. See
 [direct change submission](docs/search-engine-ping.md#submit-known-changes-directly).
 
+### Sitemap origin override
+
+The generated initializer and task examples now use `BASE_URL`. In existing
+initializers, replace `ENV.fetch("INDEXMAP_BASE_URL", ...)` with
+`ENV.fetch("BASE_URL", ...)`, and update CI commands, scripts and environment
+settings that supply the old name. Keep the app's default origin and lazy
+configuration. The installer preserves authored initializers; it does not rename
+the variable in an existing app.
+
+For example, run `BASE_URL=https://example.com bin/rails indexmap:sitemap:create`.
+The initializer owns this convention; the gem does not read either variable
+outside that configuration.
+
 ### Rails configuration without a host loader
 
 The installer now generates `ActiveSupport.on_load(:indexmap)` around the existing
