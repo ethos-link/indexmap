@@ -31,7 +31,7 @@ IndexNow without generating or reading a sitemap:
 ```ruby
 entries = [
   Indexmap::Entry.new(loc: "https://example.com/articles/updated"),
-  Indexmap::Entry.new(loc: "https://example.com/jobs/removed")
+  Indexmap::Entry.new(loc: "https://example.com/products/new")
 ]
 
 result = Indexmap::Pinger::IndexNow.new.ping(entries: entries) do |event|
@@ -41,9 +41,9 @@ result = Indexmap::Pinger::IndexNow.new.ping(entries: entries) do |event|
 end
 ```
 
-Use this for publication events, imports, edits, and removals. IndexNow receives
-the same URL notification for each kind of change; removed pages do not need to
-remain in the sitemap. Entries must use absolute HTTP(S) URLs matching the
+Use this for publication events, imports and edits. Applications can enqueue
+known changes directly instead of comparing sitemap inventories. Entries must
+use absolute HTTP(S) URLs matching the
 configured base URL's scheme, host and port, without queries, fragments or
 userinfo. All explicit entries are validated before the first submission, and
 repeated URLs are submitted once.
@@ -98,11 +98,13 @@ class IndexNowPingJob < ApplicationJob
 end
 ```
 
-Retain the URL in the queued arguments, or in a stable application notification
-that survives content deletion. If an application stores notification revisions,
-skip superseded changes before sending. An outbox can bridge content changes and
-enqueueing when needed; it does not need to track provider retries. Delivery is
-at least once: a crash or timeout after remote receipt can cause duplicates.
+Pass URLs directly in queued arguments. Applications select currently published
+canonical URLs before enqueueing; queued URL snapshots can outlive the content.
+Existing redirects and HTTP responses let search engines discover retired URLs
+without a separate removal workflow. Do not infer deletion from sitemap absence.
+An optional outbox can bridge content changes and enqueueing without tracking
+provider retries. Delivery is at least once: a crash or timeout after remote
+receipt can cause duplicates.
 
 Larger jobs must isolate failed batches instead of retrying the whole inventory.
 Each `attempt_finished` event identifies its URLs and result; later attempts for
