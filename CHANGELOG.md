@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-11-08
+
+
+### Documentation
+
+- recommend independent queued deliveries
+
+- focus queue guidance on published URLs
+
+- recommend independent queued deliveries ([#39](https://github.com/ethos-link/indexmap/pull/39))
+
+- make Ethos Link the canonical documentation home
+
+- add canonical documentation and branded social preview ([#40](https://github.com/ethos-link/indexmap/pull/40))
+
+- keep audited technical guidance alongside the code
+
+- keep audited technical guidance alongside the code ([#41](https://github.com/ethos-link/indexmap/pull/41))
+
+
+
 ## [0.12.0] - 2026-11-08
 
 

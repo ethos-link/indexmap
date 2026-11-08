@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    indexmap (0.12.0)
+    indexmap (0.12.1)
       activesupport (>= 8.0, < 9)
       faraday (>= 2.0)
       google-apis-searchconsole_v1 (>= 0.18)
@@ -285,7 +285,7 @@ CHECKSUMS
   googleauth (1.17.1) sha256=0f7e6fc70e204cee1b2d71f1e1de2d3b349d432404197fe68ebf7fa23d0821b9
   hashdiff (1.2.1) sha256=9c079dbc513dfc8833ab59c0c2d8f230fa28499cc5efb4b8dd276cf931457cd1
   i18n (1.15.2) sha256=00f9eb62412fe593b2a65a97daa75300d37abb8f7202ec748e94b6d46a9dd1b5
-  indexmap (0.12.0)
+  indexmap (0.12.1)
   io-console (0.8.2) sha256=d6e3ae7a7cc7574f4b8893b4fca2162e57a825b223a177b7afa236c5ef9814cc
   irb (1.18.0) sha256=de9454a0703a54704b9811a5ef31a60c86949fbf4013fcf244fabc7c775248e3
   json (2.20.0) sha256=9362bc6e55a952b056abf9167cf053358181c904cb70cd6eee0808ea830fc32b
