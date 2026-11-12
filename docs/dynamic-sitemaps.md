@@ -41,7 +41,9 @@ XML and document overhead. Locations must be shorter than 2,048 characters.
 A single oversized entry fails; a single-file output
 that needs another partition fails with instructions to use index mode. Empty
 sections are omitted; an empty root fails without replacing the published root.
-The index itself must fit the protocol entry limit and configured byte limit.
+A single-file output whose `entries` array is empty raises a configuration
+error instead of writing an empty urlset. The index itself must fit the protocol
+entry limit and configured byte limit.
 
 In legacy mode, the first partition keeps the section filename; later partitions
 append `-002.xml`, `-003.xml`, etc. Atomic mode chooses immutable child filenames
@@ -180,9 +182,11 @@ and must be safe to repeat. A callback failure does not roll publication back.
 
 `TaskRunner#create` runs default-output callbacks and key-file handling.
 `Indexmap.create(:name)` generates a named output without those callbacks. Keep
-that distinction when designing independent refresh jobs. Generation does not
-submit to IndexNow; keep sending as a separate operation so refresh retries do
-not resend successful batches.
+that distinction when designing independent refresh jobs. Named outputs are
+separate roots, not deferred sections of the default index; see
+[deferred named outputs](../README.md#deferred-named-outputs). Generation does
+not submit to IndexNow; keep sending as a separate operation so refresh retries
+do not resend successful batches.
 
 ## Serve published XML
 
