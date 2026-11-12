@@ -66,13 +66,17 @@ commit. Refresh on a recurring schedule when eligibility depends on time, and
 on meaningful publishing events if needed. Hosts own queries, routes, meaningful
 dates, authorization context, jobs, and schedules.
 
-For independent static and database outputs, use
+When pages and database URLs should share one discovery URL, keep them as
+sections of the [default index](../README.md#default-index-mode) and refresh that
+output when either group changes. Advertise or submit `sitemap.xml` only.
+
+For truly independent public roots, use
 [named outputs](../README.md#named-outputs) and
 [deferred named outputs](../README.md#deferred-named-outputs). They do not
-become children of the default sitemap index. Keep deferred URLs out of the
-default `config.sections`, advertise every independent public root in robots.txt,
-and submit each separately if needed. Generate a deferred output successfully
-before advertising it.
+become children of the default sitemap index. Keep those URLs out of the default
+`config.sections`, advertise every independent public root in robots.txt, and
+submit each separately if needed. Generate a deferred output successfully before
+advertising it.
 
 ## Development verification
 

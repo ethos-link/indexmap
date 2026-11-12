@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- recommend a sitemap index with section children as the usual multi-sitemap shape
 - clarify that named outputs are separate roots, not deferred index sections
 
 ## [0.12.1] - 2026-11-08

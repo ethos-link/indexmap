@@ -339,10 +339,18 @@ page-level indexing directives.
 
 ### Default Index Mode
 
-This is the default behavior. `indexmap` writes:
+This is the default behavior and the usual Google-aligned shape when a site has
+more than one sitemap file. `indexmap` writes:
 
 - `sitemap.xml` as a sitemap index
 - one or more child sitemap files from `config.sections`
+
+Put logical groups in sections (for example pages and jobs), keep the index at
+the site root, and advertise or submit that single index URL in `robots.txt` /
+Search Console. Child `lastmod` values come from each section's entries so
+crawlers can refetch only the children that changed. Google requires a split
+only after 50,000 URLs or 50 MB uncompressed per file; an index is still the
+clearest discovery model when you split for structure before those limits.
 
 Section entries can be enumerables. Indexmap consumes each section once and
 calculates its index `lastmod` in that same pass. For database sources, return a
@@ -350,17 +358,18 @@ fresh enumerable from the configured sections callable on every generation:
 
 ```ruby
 config.sections = -> do
-  entries = PublicPage.indexable.find_each.lazy.map do |page|
-    Indexmap::Entry.new(loc: page.canonical_url, lastmod: page.updated_at)
-  end
-  [Indexmap::Section.new(filename: "sitemap-pages.xml", entries: entries)]
+  [
+    Indexmap::Section.new(filename: "sitemap-pages.xml", entries: Sitemap.page_entries),
+    Indexmap::Section.new(filename: "sitemap-jobs.xml", entries: Sitemap.job_entries)
+  ]
 end
 ```
 
-`PublicPage`, its eligibility scope, and canonical URL method are host-app
-examples. Keep queries and routing decisions in the host. Generation stages
-bounded partitions and validates incrementally, using temporary disk for global
-duplicate checks. See [memory and disk limits](docs/dynamic-sitemaps.md#configure-generation).
+`Sitemap.page_entries` / `Sitemap.job_entries`, eligibility scopes, and canonical
+URL methods are host-app examples. Keep queries and routing decisions in the
+host. Generation stages bounded partitions and validates incrementally, using
+temporary disk for global duplicate checks. See
+[memory and disk limits](docs/dynamic-sitemaps.md#configure-generation).
 
 ### Single-File Mode
 
@@ -384,14 +393,14 @@ In `:single_file` mode, `indexmap` writes a `urlset` directly to `sitemap.xml` a
 
 ### Named Outputs
 
-Most apps only need the default output. Use named outputs when one part of the
-sitemap must be generated separately, for example when static pages can be
-generated during deploy but database-heavy pages should refresh later. Named
-outputs share storage with the default output, but each named output is its own
-root. Indexmap does not add a named output as a child of the default sitemap
-index. Keep deferred URLs out of `config.sections`; put them only in the named
-output. Advertise every public root in `config.robots.sitemaps` (or the static
-robots file) and submit each separately if needed.
+Most apps only need the default index. Prefer
+[default index mode](#default-index-mode) when children should be discovered
+through one `sitemap.xml`. Use named outputs only when a second public root must
+be generated and submitted on its own timeline. Named outputs share storage with
+the default output, but each named output is its own root. Indexmap does not add
+a named output as a child of the default sitemap index. Keep those URLs out of
+`config.sections`, and advertise every public root in `config.robots.sitemaps`
+(or the static robots file) if you choose this model.
 
 ```ruby
 Indexmap.configure do |config|
@@ -494,12 +503,14 @@ host loader when its settings are fixed for the process.
 ### Deferred Named Outputs
 
 Use `after_create` when `indexmap:sitemap:create` should publish the default
-output first, then schedule a slower named output for the background. This does
-not defer a section inside the default index: every section still regenerates
-with its parent output. The callback runs only after the default output has been
-validated and published and configured IndexNow key-file handling has succeeded.
-It also runs for `Indexmap::TaskRunner#create`; `Indexmap.create` does not run
-callbacks.
+output first, then schedule a slower **named output** for the background. This
+is not how to build Google's sitemap-index pattern: every section of the default
+index still regenerates with that index. Prefer putting pages and jobs (or other
+groups) in `config.sections` and refreshing the default output when any child
+must change. Use deferred named outputs only when you intentionally want a
+second root. The callback runs only after the default output has been validated
+and published and configured IndexNow key-file handling has succeeded. It also
+runs for `Indexmap::TaskRunner#create`; `Indexmap.create` does not run callbacks.
 
 ```ruby
 Indexmap.configure do |config|
@@ -538,10 +549,9 @@ end
 ```
 
 Publish the named output before crawlers are expected to fetch it. A deferred
-job can fail after the default root is published, so monitor it separately. If
-the host needs one sitemap index that references an independently refreshed
-child, that linking step is application-owned; Indexmap will not insert the
-named root into the default index.
+job can fail after the default root is published, so monitor it separately.
+Indexmap will not insert a named root into the default index; hosts that need
+one index URL should keep those URLs in `config.sections` instead.
 
 ## Validation And Parsing
 
