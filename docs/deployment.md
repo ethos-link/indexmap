@@ -67,10 +67,12 @@ on meaningful publishing events if needed. Hosts own queries, routes, meaningful
 dates, authorization context, jobs, and schedules.
 
 For independent static and database outputs, use
-[named outputs](../README.md#named-outputs). They do not automatically form a
-combined index. Advertise every independent public root in robots.txt and submit
-each separately if needed. Generate a deferred output successfully before
-advertising it.
+[named outputs](../README.md#named-outputs) and
+[deferred named outputs](../README.md#deferred-named-outputs). They do not
+become children of the default sitemap index. Keep deferred URLs out of the
+default `config.sections`, advertise every independent public root in robots.txt,
+and submit each separately if needed. Generate a deferred output successfully
+before advertising it.
 
 ## Development verification
 

@@ -387,18 +387,29 @@ In `:single_file` mode, `indexmap` writes a `urlset` directly to `sitemap.xml` a
 Most apps only need the default output. Use named outputs when one part of the
 sitemap must be generated separately, for example when static pages can be
 generated during deploy but database-heavy pages should refresh later. Named
-outputs write through the same configured storage as the default output.
+outputs share storage with the default output, but each named output is its own
+root. Indexmap does not add a named output as a child of the default sitemap
+index. Keep deferred URLs out of `config.sections`; put them only in the named
+output. Advertise every public root in `config.robots.sitemaps` (or the static
+robots file) and submit each separately if needed.
 
 ```ruby
 Indexmap.configure do |config|
   config.base_url = -> { "https://example.com" }
   config.storage = Indexmap::Storage::Filesystem.new(path: Rails.root.join("storage/sitemaps"), public_url: config.base_url)
-  config.sections = -> { Sitemap.sections }
+  config.sections = -> { Sitemap.page_sections }
 
   config.output :insights_data do |output|
     output.format = :single_file
     output.index_filename = "sitemap-insights-data.xml"
     output.entries = -> { Sitemap.insights_data_entries }
+  end
+
+  config.robots.sitemaps = -> do
+    [
+      "#{config.base_url}/sitemap.xml",
+      "#{config.base_url}/sitemap-insights-data.xml"
+    ]
   end
 end
 ```
@@ -416,7 +427,10 @@ Indexmap.create(:insights_data)
 ```
 
 Named outputs inherit `base_url` and `format` from the main configuration unless
-you override them. Storage is configured once and shared by every output.
+you override them. Storage is configured once and shared by every output. Empty
+sections are omitted from an index; a single-file named output with an empty
+`entries` array raises a configuration error, so skip creating that output when
+it has nothing to publish.
 
 `Indexmap.create` stages XML, validates it, then publishes the selected output.
 Only `Indexmap::TaskRunner#create` (also used by the create task) handles the
@@ -477,24 +491,33 @@ fresh runner/pinger after changing destinations or tenant context. Direct reads
 of `config.storage` still resolve the callable; construct an adapter once in the
 host loader when its settings are fixed for the process.
 
-### Deferred Dynamic Sections
+### Deferred Named Outputs
 
 Use `after_create` when `indexmap:sitemap:create` should publish the default
-sitemap first, then schedule slower dynamic sections for the background. The
-callback runs only after the default output has been validated and published
-and configured IndexNow key-file handling has succeeded. It also runs for
-`Indexmap::TaskRunner#create`; `Indexmap.create` does not run callbacks.
+output first, then schedule a slower named output for the background. This does
+not defer a section inside the default index: every section still regenerates
+with its parent output. The callback runs only after the default output has been
+validated and published and configured IndexNow key-file handling has succeeded.
+It also runs for `Indexmap::TaskRunner#create`; `Indexmap.create` does not run
+callbacks.
 
 ```ruby
 Indexmap.configure do |config|
   config.base_url = -> { "https://example.com" }
   config.storage = Indexmap::Storage::Filesystem.new(path: Rails.root.join("storage/sitemaps"), public_url: config.base_url)
-  config.sections = -> { Sitemap.sections }
+  config.sections = -> { Sitemap.page_sections }
 
   config.output :insights_data do |output|
     output.format = :single_file
     output.index_filename = "sitemap-insights-data.xml"
     output.entries = -> { Sitemap.insights_data_entries }
+  end
+
+  config.robots.sitemaps = -> do
+    [
+      "#{config.base_url}/sitemap.xml",
+      "#{config.base_url}/sitemap-insights-data.xml"
+    ]
   end
 
   config.after_create do
@@ -514,11 +537,11 @@ class Insights::SitemapRefreshJob < ApplicationJob
 end
 ```
 
-The default output and named output are independent roots. List both public
-root URLs in `config.robots.sitemaps` (or the static robots file) and submit each
-separately if needed; named outputs are not automatically linked into the default
-index. Publish the named output before advertising its URL. A deferred job can
-fail after the default root is published, so monitor it separately.
+Publish the named output before crawlers are expected to fetch it. A deferred
+job can fail after the default root is published, so monitor it separately. If
+the host needs one sitemap index that references an independently refreshed
+child, that linking step is application-owned; Indexmap will not insert the
+named root into the default index.
 
 ## Validation And Parsing
 

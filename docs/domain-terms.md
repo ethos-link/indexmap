@@ -4,8 +4,8 @@
 | --- | --- |
 | Configuration | `Indexmap::Configuration` holds gem settings, sources, outputs, callbacks, and robots policy. |
 | Load hook | `ActiveSupport.on_load(:indexmap)` registers host configuration without loading the gem during Rails boot. It runs when Indexmap loads, or immediately if already loaded. |
-| Output | One independently generated target with a stable root filename. Named outputs share storage and are not automatically linked into the default output. |
-| Section | A host-defined filename and enumerable of page entries, used in index mode. |
+| Output | One independently generated target with a stable root filename. Named outputs share storage and are not automatically linked into the default output; advertise each public root separately. |
+| Section | A host-defined filename and enumerable of page entries inside one index-mode output. Sections always regenerate with that output; they cannot be refreshed on their own. |
 | Page entry | `Indexmap::Entry`: the host's `loc` and optional meaningful content `lastmod`. |
 | Parsed entry | `Indexmap::Parser::Entry`: `loc`, `lastmod`, and the source sitemap key/URL. Returned by parsing and validation. |
 | Partition | A bounded child XML document produced from a section. One section may produce several partitions. |
